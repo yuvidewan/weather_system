@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Probabilistic Weather Expert System</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Source+Code+Pro:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-bg"></div>
+    <main class="container">
+      <section class="panel form-panel">
+        <h1>Weather Expert System</h1>
+        <p class="subtext">
+          Hybrid Bayesian + rule-based inference for rainfall and weather risk.
+        </p>
+        <form id="inference-form">
+          <label>API Base URL <input id="apiBaseUrl" value="http://127.0.0.1:8000" /></label>
+          <label>Location <input id="location" value="New Delhi" required /></label>
+          <label>Temperature (°C) <input id="temperature_c" type="number" value="31" step="0.1" required /></label>
+          <label>Humidity (%) <input id="humidity_pct" type="number" value="72" step="0.1" min="0" max="100" required /></label>
+          <label>Pressure (hPa) <input id="pressure_hpa" type="number" value="1004" step="0.1" required /></label>
+          <label>Wind (kph) <input id="wind_kph" type="number" value="23" step="0.1" min="0" required /></label>
+          <label>Cloud Cover (%) <input id="cloud_cover_pct" type="number" value="78" step="0.1" min="0" max="100" required /></label>
+          <label>Dew Point (°C) <input id="dew_point_c" type="number" value="26" step="0.1" required /></label>
+          <label>Recent Rain (mm) <input id="recent_rain_mm" type="number" value="4.5" step="0.1" min="0" /></label>
+          <label>UV Index <input id="uv_index" type="number" value="6" step="0.1" min="0" /></label>
+          <label>Visibility (km) <input id="visibility_km" type="number" value="8" step="0.1" min="0.1" /></label>
+          <label>Month <input id="month" type="number" value="7" min="1" max="12" required /></label>
+          <label>Hour (0-23) <input id="hour_24" type="number" value="16" min="0" max="23" required /></label>
+          <label>Horizon (hours) <input id="horizon_hours" type="number" value="6" min="1" max="24" required /></label>
+          <label>
+            Season
+            <select id="season">
+              <option>winter</option>
+              <option>spring</option>
+              <option>summer</option>
+              <option selected>monsoon</option>
+              <option>autumn</option>
+            </select>
+          </label>
+          <label>
+            Terrain
+            <select id="terrain">
+              <option>coastal</option>
+              <option>plains</option>
+              <option selected>urban</option>
+              <option>mountain</option>
+              <option>forest</option>
+              <option>desert</option>
+            </select>
+          </label>
+          <label>
+            Pressure Trend
+            <select id="pressure_trend">
+              <option>rising</option>
+              <option selected>steady</option>
+              <option>falling</option>
+            </select>
+          </label>
+          <button type="submit">Run Inference</button>
+        </form>
+      </section>
+
+      <section class="panel output-panel">
+        <h2>Prediction Output</h2>
+        <div id="summary" class="summary-card">No inference yet.</div>
+        <div id="bars" class="bars"></div>
+        <div class="columns">
+          <div>
+            <h3>Expert Recommendations</h3>
+            <ul id="recommendations"></ul>
+          </div>
+          <div>
+            <h3>Top Factors</h3>
+            <ul id="factors"></ul>
+          </div>
+        </div>
+        <div>
+          <h3>Explanation</h3>
+          <p id="explanation"></p>
+        </div>
+      </section>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>
+

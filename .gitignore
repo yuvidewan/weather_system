@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+env1/
+
+# Environment files
+.env
+backend/.env
+
+# Logs / local artifacts
+*.log
+*.sqlite3
+*.db
+.DS_Store
+Thumbs.db
+
+# Frontend
+frontend/.cache/
+
