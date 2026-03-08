@@ -1,11 +1,13 @@
 # Probabilistic Weather Expert System
 
 Full-stack expert system that predicts rainfall and weather conditions using:
-- Probabilistic reasoning (Bayesian-style scoring + softmax normalization)
-- Expert rule engine (domain rules for pressure, humidity, fog, convection, wind)
-- Monte Carlo rainfall expectation simulation
-- Explainability outputs (key factors + natural-language explanation)
-- Risk/alert interpretation and recommendations
+- Data intelligence layer (live ingestion fallback, baseline biasing, sensor reliability, imputation)
+- Hybrid probabilistic engine (priors + dynamic transitions + calibration + expert rules)
+- Forecast depth (multi-horizon projections, event timing probabilities, intensity bands)
+- Explainability (rule trace, attribution, counterfactuals, expert narrative)
+- Decision support (risk profiles, threshold policies, recommendations)
+- Geo comparison (multi-location endpoint)
+- Enterprise support basics (API key auth, roles, SQLite forecast history + audit log)
 
 ## Project Structure
 
@@ -30,17 +32,15 @@ expert_system/
 
 ## Feature Set
 
-- Inference API endpoint with typed validation
-- Weather condition probability vector:
-  - `clear`, `cloudy`, `rain`, `drizzle`, `thunderstorm`, `fog`, `windy`
-- Aggregated rain probability over selected forecast horizon
-- Expected rainfall amount (mm) from stochastic simulation
-- Confidence score from prediction entropy
-- Alert levels: `low`, `moderate`, `high`, `severe`
-- Top factor impacts for explainability
-- Human-readable expert explanation
-- Recent in-memory inference history endpoint
-- Web dashboard to input meteorological signals and visualize results
+- Expanded knowledge base with seasonal, terrain, climate-zone, and monthly multipliers
+- Larger expert rule library (multiple rain/fog/storm/clear/windy triggers)
+- Multi-horizon forecasts (`1h`, `3h`, `6h`, `12h`, `24h`)
+- Scenario outputs (`best_case`, `expected_case`, `worst_case`)
+- Event outputs (`rain_onset_within_3h`, `storm_onset_within_6h`, `heavy_rain_within_12h`)
+- Intensity band probabilities (`light`, `moderate`, `heavy`, `extreme`)
+- Risk mode profiles (`general`, `agriculture`, `travel`, `events`, `logistics`)
+- Persistent history and audit storage in SQLite
+- Professional frontend command console with advanced visual panels
 
 ## Backend Setup (Python)
 
@@ -74,6 +74,10 @@ API docs:
 - Swagger: `http://127.0.0.1:8000/docs`
 - Health: `http://127.0.0.1:8000/health`
 
+Auth headers for protected endpoints:
+- `x-api-key: dev-admin-key` (or `dev-analyst-key`)
+- `x-role: admin|analyst|viewer`
+
 ## Frontend Setup
 
 Run a static server from `frontend`:
@@ -91,12 +95,15 @@ By default, UI points to `http://127.0.0.1:8000`.
 ## Main API Endpoints
 
 - `POST /api/v1/infer`
-  - Input: location + observation object + horizon
-  - Output: complete inference package with probabilities, rainfall estimate, alerts, recommendations, factors
+  - Full inference with scenarios, horizons, event probabilities, explainability, data quality
+- `POST /api/v1/infer/multi-location`
+  - Compare risk across up to 10 locations for the same observation
+- `GET /api/v1/live-weather?lat=<>&lon=<>`
+  - Optional live ingestion endpoint with deterministic fallback
 - `GET /api/v1/knowledge-base`
-  - Returns priors and multipliers used by the expert system
+  - Returns priors and expanded multipliers/thresholds used by the expert system
 - `GET /api/v1/history`
-  - Returns recent inference summaries
+  - Returns persisted forecast history
 - `GET /health`
 
 ## Example Inference Request
@@ -105,6 +112,10 @@ By default, UI points to `http://127.0.0.1:8000`.
 {
   "location": "Mumbai",
   "horizon_hours": 6,
+  "risk_mode": "events",
+  "custom_thresholds": {
+    "high": 0.5
+  },
   "observation": {
     "temperature_c": 30.5,
     "humidity_pct": 84,
@@ -119,7 +130,14 @@ By default, UI points to `http://127.0.0.1:8000`.
     "hour_24": 17,
     "season": "monsoon",
     "terrain": "coastal",
-    "pressure_trend": "falling"
+    "pressure_trend": "falling",
+    "source_confidence": {
+      "manual": 0.8,
+      "station": 0.88,
+      "satellite": 0.83,
+      "radar": 0.9,
+      "model": 0.79
+    }
   }
 }
 ```
@@ -128,4 +146,3 @@ By default, UI points to `http://127.0.0.1:8000`.
 
 - This is a rule-augmented probabilistic expert system intended for decision support and educational use.
 - It is not a substitute for official meteorological warnings.
-

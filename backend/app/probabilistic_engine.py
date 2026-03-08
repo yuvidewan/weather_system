@@ -4,28 +4,36 @@ import math
 import random
 from typing import Any
 
-from .knowledge_base import BASE_PRIORS, SEASONAL_MULTIPLIERS, TERRAIN_MULTIPLIERS, expert_rules
+from .data_intelligence import apply_historical_baseline, data_quality
+from .knowledge_base import (
+    BASE_PRIORS,
+    CLIMATE_ZONE_MULTIPLIERS,
+    MONTHLY_MULTIPLIERS,
+    RISK_MODE_ALERT_WEIGHTS,
+    RISK_MODE_THRESHOLDS,
+    SEASONAL_MULTIPLIERS,
+    TERRAIN_MULTIPLIERS,
+    expert_rules,
+    infer_climate_zone,
+)
 
 
 CONDITIONS = list(BASE_PRIORS.keys())
+DEFAULT_HORIZONS = [1, 3, 6, 12, 24]
 
 
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
-def _sigmoid(value: float) -> float:
-    return 1 / (1 + math.exp(-value))
-
-
 def _softmax(scores: dict[str, float]) -> dict[str, float]:
-    ceiling = max(scores.values())
-    exp_scores = {key: math.exp(val - ceiling) for key, val in scores.items()}
+    peak = max(scores.values())
+    exp_scores = {k: math.exp(v - peak) for k, v in scores.items()}
     total = sum(exp_scores.values())
-    return {key: val / total for key, val in exp_scores.items()}
+    return {k: v / total for k, v in exp_scores.items()}
 
 
-def _feature_contributions(obs: dict[str, Any]) -> dict[str, float]:
+def _feature_contributions(obs: dict[str, Any], baseline: dict[str, float]) -> dict[str, float]:
     humidity = obs["humidity_pct"] / 100
     cloud = obs["cloud_cover_pct"] / 100
     pressure = obs["pressure_hpa"]
@@ -43,144 +51,273 @@ def _feature_contributions(obs: dict[str, Any]) -> dict[str, float]:
     return {
         "rain": (
             2.0 * humidity
-            + 1.8 * cloud
-            + 0.25 * recent_rain
-            + (1008 - pressure) * 0.01
-            + 0.4 * evening_convective
-            - 0.015 * max(0, uv - 7)
+            + 1.75 * cloud
+            + 0.22 * recent_rain
+            + (1008 - pressure) * 0.012
+            + 0.35 * evening_convective
+            + 0.4 * max(0, baseline["humidity_bias"])
+            - 0.02 * max(0, uv - 8)
         ),
         "drizzle": (
-            1.6 * humidity
-            + 1.4 * cloud
-            + 0.18 * recent_rain
-            - 0.008 * abs(pressure - 1012)
-            - 0.02 * max(0, wind - 30)
+            1.65 * humidity
+            + 1.5 * cloud
+            + 0.17 * recent_rain
+            - 0.006 * abs(pressure - 1012)
+            - 0.018 * max(0, wind - 30)
         ),
         "thunderstorm": (
             0.06 * max(0, temp - 24)
-            + 1.3 * humidity
-            + 0.95 * cloud
-            + (1005 - pressure) * 0.018
-            + 0.05 * wind
+            + 1.22 * humidity
+            + 1.0 * cloud
+            + (1005 - pressure) * 0.02
+            + 0.045 * wind
             + 0.5 * evening_convective
+            + 0.22 * max(0, baseline["seasonal_bias"])
         ),
         "fog": (
-            1.45 * humidity
+            1.42 * humidity
             + 0.6 * cloud
-            + 0.25 * night
+            + 0.23 * night
             - 0.05 * wind
             + 0.12 * max(0, 4 - dew_gap)
-            + 0.15 * max(0, 5 - visibility)
+            + 0.17 * max(0, 5 - visibility)
         ),
-        "windy": (
-            0.09 * wind + (1008 - pressure) * 0.01 + 0.12 * cloud - 0.02 * humidity + 0.08 * evening_convective
-        ),
+        "windy": 0.09 * wind + (1008 - pressure) * 0.011 + 0.12 * cloud - 0.02 * humidity + 0.08 * evening_convective,
         "clear": (
             1.7 * (1 - cloud)
-            + 1.2 * (1 - humidity)
+            + 1.1 * (1 - humidity)
             + 0.04 * uv
-            + 0.01 * max(0, pressure - 1012)
+            + 0.012 * max(0, pressure - 1012)
             - 0.05 * recent_rain
+            - 0.35 * max(0, baseline["humidity_bias"])
         ),
-        "cloudy": (
-            1.85 * cloud
-            + 0.8 * humidity
-            + 0.01 * max(0, 1015 - pressure)
-            - 0.02 * uv
-            + 0.02 * max(0, 28 - temp)
-        ),
+        "cloudy": 1.82 * cloud + 0.82 * humidity + 0.01 * max(0, 1015 - pressure) - 0.02 * uv + 0.018 * max(0, 28 - temp),
     }
 
 
-def _confidence(probabilities: dict[str, float], missing: float) -> float:
+def _apply_knowledge_multipliers(
+    scores: dict[str, float],
+    obs: dict[str, Any],
+    location: str,
+    feature_contrib: dict[str, float],
+) -> tuple[dict[str, float], dict[str, float], str]:
+    climate_zone = infer_climate_zone(location)
+    impact_trace: dict[str, float] = {}
+    for condition in CONDITIONS:
+        season_mult = SEASONAL_MULTIPLIERS.get(obs["season"], {}).get(condition, 1.0)
+        terrain_mult = TERRAIN_MULTIPLIERS.get(obs["terrain"], {}).get(condition, 1.0)
+        climate_mult = CLIMATE_ZONE_MULTIPLIERS.get(climate_zone, {}).get(condition, 1.0)
+        month_mult = MONTHLY_MULTIPLIERS.get(obs["month"], {}).get(condition, 1.0)
+        blend = feature_contrib[condition] * season_mult * terrain_mult * climate_mult * month_mult
+        scores[condition] += blend
+        impact_trace[f"feature::{condition}"] = blend
+    return scores, impact_trace, climate_zone
+
+
+def _apply_rules(scores: dict[str, float], obs: dict[str, Any]) -> tuple[dict[str, float], list[dict[str, Any]]]:
+    traces: list[dict[str, Any]] = []
+    for effect in expert_rules(obs):
+        delta = math.log(effect.weight)
+        scores[effect.condition] += delta
+        traces.append({"condition": effect.condition, "reason": effect.reason, "weight": effect.weight, "delta": delta})
+    return scores, traces
+
+
+def _dynamic_transition(probabilities: dict[str, float], horizon_hours: int) -> dict[str, float]:
+    strength = _clamp((horizon_hours - 1) / 24, 0, 0.65)
+    transitioned = dict(probabilities)
+    rain_state = probabilities["rain"] + 0.4 * probabilities["drizzle"] + 0.55 * probabilities["thunderstorm"]
+    transitioned["rain"] = _clamp((1 - strength) * probabilities["rain"] + strength * rain_state, 0.0001, 0.99)
+    transitioned["drizzle"] = _clamp((1 - strength * 0.4) * probabilities["drizzle"], 0.0001, 0.99)
+    transitioned["thunderstorm"] = _clamp((1 - strength * 0.2) * probabilities["thunderstorm"] + strength * 0.12 * rain_state, 0.0001, 0.99)
+    total = sum(transitioned.values())
+    return {k: v / total for k, v in transitioned.items()}
+
+
+def _calibrate(probabilities: dict[str, float], reliability: float) -> dict[str, float]:
+    calibrated = {}
+    for condition, prob in probabilities.items():
+        damp = 0.7 + 0.3 * reliability
+        adjusted = (prob**damp) / ((prob**damp) + ((1 - prob) ** damp))
+        calibrated[condition] = _clamp(adjusted, 0.0001, 0.999)
+    total = sum(calibrated.values())
+    return {k: v / total for k, v in calibrated.items()}
+
+
+def _confidence(probabilities: dict[str, float], uncertainty_penalty: float) -> float:
     entropy = -sum(p * math.log(p + 1e-12) for p in probabilities.values())
     max_entropy = math.log(len(probabilities))
     certainty = 1 - entropy / max_entropy
-    return _clamp(0.25 + 0.75 * certainty - 0.1 * missing, 0.05, 0.99)
+    return _clamp(0.2 + 0.8 * certainty - uncertainty_penalty, 0.05, 0.99)
 
 
-def _recommendations(rain_prob: float, thunder_prob: float, fog_prob: float, wind_prob: float) -> list[str]:
-    recs: list[str] = []
-    if rain_prob >= 0.55:
-        recs.append("Carry rain protection and avoid waterlogged routes.")
-    if thunder_prob >= 0.4:
-        recs.append("Expect possible lightning; avoid open fields and unsecured rooftops.")
-    if fog_prob >= 0.35:
-        recs.append("Use low-beam headlights and maintain larger following distance.")
-    if wind_prob >= 0.45:
-        recs.append("Secure loose outdoor items and avoid parking under weak structures.")
-    if not recs:
-        recs.append("No major weather hazard likely in the selected horizon.")
-    return recs
-
-
-def _alert_level(rain_prob: float, thunder_prob: float, wind_prob: float) -> str:
-    risk_score = 0.45 * rain_prob + 0.4 * thunder_prob + 0.15 * wind_prob
-    if risk_score >= 0.72:
-        return "severe"
-    if risk_score >= 0.52:
-        return "high"
-    if risk_score >= 0.3:
-        return "moderate"
-    return "low"
-
-
-def _expected_rainfall_mm(obs: dict[str, Any], rain_prob: float, thunder_prob: float) -> float:
+def _expected_rainfall_mm(obs: dict[str, Any], rain_prob: float, thunder_prob: float, horizon_hours: int) -> float:
     samples = []
     humidity = obs["humidity_pct"] / 100
     cloud = obs["cloud_cover_pct"] / 100
     trend_boost = 1.2 if obs["pressure_trend"] == "falling" else 1.0
-    for _ in range(400):
-        intensity = random.gammavariate(1.5 + 2 * thunder_prob, 2.5 + 1.5 * humidity)
-        base = intensity * rain_prob * cloud * trend_boost
-        noise = random.uniform(-0.4, 0.8)
+    horizon_boost = _clamp(horizon_hours / 6, 0.6, 3.8)
+    for _ in range(320):
+        intensity = random.gammavariate(1.4 + 2.1 * thunder_prob, 2.4 + 1.5 * humidity)
+        base = intensity * rain_prob * cloud * trend_boost * horizon_boost
+        noise = random.uniform(-0.35, 0.7)
         samples.append(max(0.0, base + noise))
     return round(sum(samples) / len(samples), 2)
 
 
-def infer_weather(obs: dict[str, Any], horizon_hours: int) -> dict[str, Any]:
-    scores = {cond: math.log(BASE_PRIORS[cond]) for cond in CONDITIONS}
-    feature_scores = _feature_contributions(obs)
-    impact_trace: dict[str, float] = {}
+def _alert_level(rain_prob: float, thunder_prob: float, wind_prob: float, risk_mode: str, thresholds: dict[str, float]) -> str:
+    weights = RISK_MODE_ALERT_WEIGHTS.get(risk_mode, RISK_MODE_ALERT_WEIGHTS["general"])
+    score = weights["rain"] * rain_prob + weights["thunderstorm"] * thunder_prob + weights["windy"] * wind_prob
+    config = {**RISK_MODE_THRESHOLDS.get(risk_mode, RISK_MODE_THRESHOLDS["general"]), **thresholds}
+    if score >= config["severe"]:
+        return "severe"
+    if score >= config["high"]:
+        return "high"
+    if score >= config["moderate"]:
+        return "moderate"
+    return "low"
 
-    for cond in CONDITIONS:
-        season_mult = SEASONAL_MULTIPLIERS.get(obs["season"], {}).get(cond, 1.0)
-        terrain_mult = TERRAIN_MULTIPLIERS.get(obs["terrain"], {}).get(cond, 1.0)
-        combined = feature_scores[cond] * season_mult * terrain_mult
-        scores[cond] += combined
-        impact_trace[f"feature::{cond}"] = combined
 
-    rule_reasons: list[str] = []
-    for effect in expert_rules(obs):
-        delta = math.log(effect.weight)
-        scores[effect.condition] += delta
-        impact_trace[f"rule::{effect.reason}"] = delta
-        rule_reasons.append(effect.reason)
+def _recommendations(risk_mode: str, rain_prob: float, thunder_prob: float, fog_prob: float, wind_prob: float) -> list[str]:
+    base: list[str] = []
+    if rain_prob >= 0.52:
+        base.append("Carry rain protection and avoid flood-prone corridors.")
+    if thunder_prob >= 0.35:
+        base.append("Expect lightning risk; avoid exposed rooftops and open grounds.")
+    if fog_prob >= 0.33:
+        base.append("Use low-beam lights and reduce speed in low-visibility stretches.")
+    if wind_prob >= 0.42:
+        base.append("Secure loose structures and delay crane or rooftop operations.")
 
-    hours_factor = _clamp(horizon_hours / 6, 0.5, 3.5)
-    scores["rain"] += math.log(1 + 0.08 * hours_factor)
-    scores["thunderstorm"] += math.log(1 + 0.1 * max(0, hours_factor - 1))
+    mode_tips = {
+        "agriculture": "Delay fertilizer/pesticide spray when rain chance is elevated.",
+        "travel": "Add buffer time and prefer major roads if alert is high.",
+        "events": "Prepare tent anchoring and covered backup areas.",
+        "logistics": "Re-sequence loading windows for high-risk rainfall periods.",
+    }
+    if risk_mode in mode_tips:
+        base.append(mode_tips[risk_mode])
+    if not base:
+        base.append("No major weather hazard likely in the selected horizon.")
+    return base
+
+
+def _scenario_simulation(rain_prob: float, expected_rainfall_mm: float) -> list[dict[str, float | str]]:
+    best_prob = _clamp(rain_prob * 0.7, 0, 1)
+    worst_prob = _clamp(rain_prob * 1.25, 0, 1)
+    return [
+        {"label": "best_case", "rain_probability": round(best_prob, 4), "expected_rainfall_mm": round(expected_rainfall_mm * 0.55, 2)},
+        {"label": "expected_case", "rain_probability": round(rain_prob, 4), "expected_rainfall_mm": expected_rainfall_mm},
+        {"label": "worst_case", "rain_probability": round(worst_prob, 4), "expected_rainfall_mm": round(expected_rainfall_mm * 1.6, 2)},
+    ]
+
+
+def _event_probabilities(probabilities: dict[str, float], rain_prob: float, horizon_hours: int) -> dict[str, float]:
+    horizon_factor = _clamp(horizon_hours / 6, 0.3, 1.8)
+    storm_prob = probabilities["thunderstorm"]
+    heavy_prob = _clamp(0.55 * storm_prob + 0.45 * max(0, rain_prob - 0.35), 0, 1)
+    return {
+        "rain_onset_within_3h": round(_clamp(rain_prob * (0.8 / horizon_factor), 0, 1), 4),
+        "storm_onset_within_6h": round(_clamp(storm_prob * (1.0 / max(horizon_factor, 0.6)), 0, 1), 4),
+        "heavy_rain_within_12h": round(_clamp(heavy_prob * horizon_factor, 0, 1), 4),
+    }
+
+
+def _intensity_bands(rain_prob: float, thunder_prob: float) -> dict[str, float]:
+    light = _clamp(0.5 * rain_prob + 0.15, 0, 1)
+    moderate = _clamp(0.35 * rain_prob + 0.2 * thunder_prob, 0, 1)
+    heavy = _clamp(0.22 * rain_prob + 0.45 * thunder_prob, 0, 1)
+    extreme = _clamp(0.08 * rain_prob + 0.35 * thunder_prob, 0, 1)
+    total = light + moderate + heavy + extreme
+    return {
+        "light": round(light / total, 4),
+        "moderate": round(moderate / total, 4),
+        "heavy": round(heavy / total, 4),
+        "extreme": round(extreme / total, 4),
+    }
+
+
+def _counterfactuals(obs: dict[str, Any], rain_prob: float) -> list[dict[str, Any]]:
+    return [
+        {"change": "If pressure increases by 4 hPa", "impact_on_rain_probability": round(-0.08 * rain_prob, 4)},
+        {"change": "If humidity drops by 10%", "impact_on_rain_probability": round(-0.12 * rain_prob, 4)},
+        {"change": "If cloud cover increases by 15%", "impact_on_rain_probability": round(0.09 * (1 - rain_prob), 4)},
+    ]
+
+
+def _feature_attributions(feature_scores: dict[str, float]) -> list[dict[str, Any]]:
+    ranked = sorted(feature_scores.items(), key=lambda kv: abs(kv[1]), reverse=True)
+    return [
+        {"factor": name, "impact": round(abs(val), 3), "direction": "increases" if val >= 0 else "decreases"}
+        for name, val in ranked[:6]
+    ]
+
+
+def _horizon_projection(obs: dict[str, Any], location: str, risk_mode: str, thresholds: dict[str, float]) -> list[dict[str, Any]]:
+    horizons: list[dict[str, Any]] = []
+    for horizon in DEFAULT_HORIZONS:
+        core = infer_weather(obs, location=location, horizon_hours=horizon, risk_mode=risk_mode, custom_thresholds=thresholds, include_horizons=False)
+        horizons.append(
+            {
+                "horizon_hours": horizon,
+                "predicted_condition": core["predicted_condition"],
+                "rain_probability": core["rain_probability"],
+                "expected_rainfall_mm": core["expected_rainfall_mm"],
+                "confidence_score": core["confidence_score"],
+            }
+        )
+    return horizons
+
+
+def infer_weather(
+    obs: dict[str, Any],
+    *,
+    location: str,
+    horizon_hours: int,
+    risk_mode: str = "general",
+    custom_thresholds: dict[str, float] | None = None,
+    include_horizons: bool = True,
+) -> dict[str, Any]:
+    custom_thresholds = custom_thresholds or {}
+    quality = data_quality(obs)
+    baseline = apply_historical_baseline(obs, infer_climate_zone(location), obs["month"])
+
+    scores = {condition: math.log(BASE_PRIORS[condition]) for condition in CONDITIONS}
+    feature_scores = _feature_contributions(obs, baseline)
+    scores, impact_trace, climate_zone = _apply_knowledge_multipliers(scores, obs, location, feature_scores)
+    scores, rule_trace = _apply_rules(scores, obs)
+
+    horizon_factor = _clamp(horizon_hours / 6, 0.5, 3.7)
+    scores["rain"] += math.log(1 + 0.08 * horizon_factor)
+    scores["thunderstorm"] += math.log(1 + 0.1 * max(0, horizon_factor - 1))
 
     probabilities = _softmax(scores)
+    probabilities = _dynamic_transition(probabilities, horizon_hours)
+    probabilities = _calibrate(probabilities, quality["sensor_reliability"])
+
     rain_prob = probabilities["rain"] + 0.45 * probabilities["drizzle"] + 0.5 * probabilities["thunderstorm"]
     rain_prob = _clamp(rain_prob, 0, 1)
-    confidence = _confidence(probabilities, missing=0.0)
-    expected_rainfall = _expected_rainfall_mm(obs, rain_prob=rain_prob, thunder_prob=probabilities["thunderstorm"])
+    confidence = _confidence(probabilities, quality["uncertainty_penalty"])
+    expected_rainfall = _expected_rainfall_mm(obs, rain_prob, probabilities["thunderstorm"], horizon_hours)
+    predicted_condition = max(probabilities, key=probabilities.get)
 
-    top_factor_items = sorted(impact_trace.items(), key=lambda kv: abs(kv[1]), reverse=True)[:5]
-    top_factors = []
+    top_factor_items = sorted(impact_trace.items(), key=lambda kv: abs(kv[1]), reverse=True)[:6]
+    key_factors = []
     for key, val in top_factor_items:
         label = key.replace("feature::", "").replace("rule::", "")
-        top_factors.append({"factor": label, "impact": round(abs(val), 3), "direction": "increases" if val >= 0 else "decreases"})
+        key_factors.append({"factor": label, "impact": round(abs(val), 3), "direction": "increases" if val >= 0 else "decreases"})
 
-    predicted_condition = max(probabilities, key=probabilities.get)
+    horizons = _horizon_projection(obs, location, risk_mode, custom_thresholds) if include_horizons else []
+    scenarios = _scenario_simulation(rain_prob, expected_rainfall)
+    events = _event_probabilities(probabilities, rain_prob, horizon_hours)
+    bands = _intensity_bands(rain_prob, probabilities["thunderstorm"])
+    counterfactuals = _counterfactuals(obs, rain_prob)
+
     explanation = (
-        f"Most likely condition is {predicted_condition}. "
-        f"Rain probability is {rain_prob:.2f} over {horizon_hours}h. "
-        f"Top drivers include {', '.join([item['factor'] for item in top_factors[:3]])}."
+        f"{predicted_condition} is most likely at {round(max(probabilities.values()) * 100)}% confidence weight. "
+        f"Rain probability is {rain_prob:.2f} with expected rainfall {expected_rainfall} mm over {horizon_hours}h. "
+        f"Climate zone: {climate_zone}."
     )
-    if rule_reasons:
-        explanation += f" Expert rules fired: {'; '.join(rule_reasons[:3])}."
 
     return {
         "predicted_condition": predicted_condition,
@@ -188,14 +325,29 @@ def infer_weather(obs: dict[str, Any], horizon_hours: int) -> dict[str, Any]:
         "rain_probability": round(rain_prob, 4),
         "expected_rainfall_mm": expected_rainfall,
         "confidence_score": round(confidence, 4),
-        "alert_level": _alert_level(rain_prob, probabilities["thunderstorm"], probabilities["windy"]),
+        "alert_level": _alert_level(
+            rain_prob,
+            probabilities["thunderstorm"],
+            probabilities["windy"],
+            risk_mode,
+            custom_thresholds,
+        ),
         "expert_recommendations": _recommendations(
+            risk_mode,
             rain_prob,
             probabilities["thunderstorm"],
             probabilities["fog"],
             probabilities["windy"],
         ),
-        "key_factors": top_factors,
+        "key_factors": key_factors,
+        "feature_attributions": _feature_attributions(feature_scores),
+        "rule_trace": rule_trace,
+        "counterfactuals": counterfactuals,
+        "scenarios": scenarios,
+        "horizons": horizons,
+        "event_probabilities": events,
+        "intensity_bands": bands,
+        "data_quality": quality,
         "explanation": explanation,
     }
 

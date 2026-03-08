@@ -3,13 +3,30 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .knowledge_base import BASE_PRIORS, SEASONAL_MULTIPLIERS, TERRAIN_MULTIPLIERS
+from .knowledge_base import (
+    BASE_PRIORS,
+    CLIMATE_ZONE_MULTIPLIERS,
+    MONTHLY_MULTIPLIERS,
+    RISK_MODE_THRESHOLDS,
+    SEASONAL_MULTIPLIERS,
+    TERRAIN_MULTIPLIERS,
+)
 from .probabilistic_engine import infer_weather
-from .schemas import ConditionProbability, InferenceRequest, InferenceResponse
+from .schemas import (
+    ConditionProbability,
+    InferenceRequest,
+    InferenceResponse,
+    MultiLocationItem,
+    MultiLocationRequest,
+    MultiLocationResponse,
+)
+from .security import authorize
+from .storage import init_db, read_history, write_audit, write_forecast
+from .weather_provider import fetch_live_weather
 
 
 app = FastAPI(
@@ -26,7 +43,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-INFERENCE_HISTORY: list[dict[str, Any]] = []
+init_db()
 
 
 @app.get("/health")
@@ -45,12 +62,22 @@ def knowledge_base() -> dict[str, Any]:
         "base_priors": BASE_PRIORS,
         "seasonal_multipliers": SEASONAL_MULTIPLIERS,
         "terrain_multipliers": TERRAIN_MULTIPLIERS,
+        "climate_zone_multipliers": CLIMATE_ZONE_MULTIPLIERS,
+        "monthly_multipliers": MONTHLY_MULTIPLIERS,
+        "risk_mode_thresholds": RISK_MODE_THRESHOLDS,
     }
 
 
 @app.post("/api/v1/infer", response_model=InferenceResponse)
-def infer(request: InferenceRequest) -> InferenceResponse:
-    result = infer_weather(request.observation.model_dump(), request.horizon_hours)
+def infer(request: InferenceRequest, role: str = Depends(authorize)) -> InferenceResponse:
+    obs = request.observation.model_dump()
+    result = infer_weather(
+        obs,
+        location=request.location,
+        horizon_hours=request.horizon_hours,
+        risk_mode=request.risk_mode,
+        custom_thresholds=request.custom_thresholds,
+    )
 
     condition_probabilities = [
         ConditionProbability(condition=condition, probability=round(prob, 4))
@@ -59,6 +86,7 @@ def infer(request: InferenceRequest) -> InferenceResponse:
 
     response = InferenceResponse(
         location=request.location,
+        risk_mode=request.risk_mode,
         horizon_hours=request.horizon_hours,
         predicted_condition=result["predicted_condition"],
         condition_probabilities=condition_probabilities,
@@ -68,25 +96,69 @@ def infer(request: InferenceRequest) -> InferenceResponse:
         alert_level=result["alert_level"],
         expert_recommendations=result["expert_recommendations"],
         key_factors=result["key_factors"],
+        feature_attributions=result["feature_attributions"],
+        rule_trace=result["rule_trace"],
+        counterfactuals=result["counterfactuals"],
+        scenarios=result["scenarios"],
+        horizons=result["horizons"],
+        event_probabilities=result["event_probabilities"],
+        intensity_bands=result["intensity_bands"],
+        data_quality=result["data_quality"],
         explanation=result["explanation"],
     )
 
-    INFERENCE_HISTORY.append(
+    now = datetime.now(timezone.utc).isoformat()
+    write_forecast(
         {
-            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "timestamp_utc": now,
             "location": request.location,
+            "risk_mode": request.risk_mode,
             "predicted_condition": response.predicted_condition,
             "rain_probability": response.rain_probability,
             "alert_level": response.alert_level,
         }
     )
-    if len(INFERENCE_HISTORY) > 50:
-        del INFERENCE_HISTORY[0]
+    write_audit(now, role, "infer", f"location={request.location}; risk_mode={request.risk_mode}")
 
     return response
 
 
 @app.get("/api/v1/history")
-def history() -> dict[str, Any]:
-    return {"count": len(INFERENCE_HISTORY), "items": INFERENCE_HISTORY}
+def history(limit: int = 50, _: str = Depends(authorize)) -> dict[str, Any]:
+    items = read_history(limit=max(1, min(limit, 200)))
+    return {"count": len(items), "items": items}
 
+
+@app.get("/api/v1/live-weather")
+def live_weather(lat: float, lon: float, role: str = Depends(authorize)) -> dict[str, Any]:
+    payload = fetch_live_weather(lat=lat, lon=lon)
+    write_audit(datetime.now(timezone.utc).isoformat(), role, "live_weather", f"lat={lat};lon={lon};source={payload['source']}")
+    return payload
+
+
+@app.post("/api/v1/infer/multi-location", response_model=MultiLocationResponse)
+def infer_multi_location(request: MultiLocationRequest, role: str = Depends(authorize)) -> MultiLocationResponse:
+    items: list[MultiLocationItem] = []
+    for location in request.locations:
+        result = infer_weather(
+            request.observation.model_dump(),
+            location=location,
+            horizon_hours=request.horizon_hours,
+            risk_mode=request.risk_mode,
+            custom_thresholds={},
+        )
+        items.append(
+            MultiLocationItem(
+                location=location,
+                predicted_condition=result["predicted_condition"],
+                rain_probability=result["rain_probability"],
+                alert_level=result["alert_level"],
+            )
+        )
+    write_audit(
+        datetime.now(timezone.utc).isoformat(),
+        role,
+        "infer_multi_location",
+        f"locations={len(request.locations)}; risk_mode={request.risk_mode}",
+    )
+    return MultiLocationResponse(count=len(items), items=items)
