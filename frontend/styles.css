@@ -1,43 +1,43 @@
 :root {
-  --bg: #ffffff;
-  --bg2: #ffffff;
+  --bg: #f2f6fb;
+  --bg2: #e8eef8;
   --card: #ffffff;
-  --text: #9f7302;
-  --muted: #ad7f08;
-  --line: #f3e7c3;
-  --primary: #ffffff;
-  --primary-dark: #ffffff;
-  --secondary: #ffffff;
-  --chip: #ffffff;
-  --bar-a: #d7b657;
-  --bar-b: #f7e6a0;
-  --field-bg: #ffffff;
-  --field-border: #f2e3b7;
-  --field-text: #a17400;
-  --focus: #f1d98d;
-  --status: #9f7302;
-  --button-text: #9f7302;
+  --text: #143047;
+  --muted: #4b6379;
+  --line: #d9e4f0;
+  --primary: #0f7f9b;
+  --primary-dark: #0d5f82;
+  --secondary: #2e98b6;
+  --chip: #f4f9ff;
+  --bar-a: #18a8a0;
+  --bar-b: #3e7fe8;
+  --field-bg: #f8fbff;
+  --field-border: #cddcec;
+  --field-text: #10324f;
+  --focus: #4ca7ff;
+  --status: #2f5c7f;
+  --button-text: #edf8ff;
 }
 
 body.dark {
-  --bg: #11100c;
-  --bg2: #1c170d;
-  --card: #1b1710;
-  --text: #f4d996;
-  --muted: #cfb777;
-  --line: #5e4a1d;
-  --primary: #e6b325;
-  --primary-dark: #b78411;
-  --secondary: #e6b325;
-  --chip: #292115;
-  --bar-a: #e6b325;
-  --bar-b: #c08c12;
-  --field-bg: #221c12;
-  --field-border: #4f3f19;
-  --field-text: #f0d487;
-  --focus: #b98f31;
-  --status: #dfc57f;
-  --button-text: #fff6dd;
+  --bg: #101522;
+  --bg2: #1a2333;
+  --card: #172131;
+  --text: #ebf4ff;
+  --muted: #9cb4cc;
+  --line: #324560;
+  --primary: #2faed2;
+  --primary-dark: #1b7ca3;
+  --secondary: #4f95e9;
+  --chip: #1f2b3d;
+  --bar-a: #3bd3c8;
+  --bar-b: #6694f0;
+  --field-bg: #1c2a3d;
+  --field-border: #3a5270;
+  --field-text: #e4f2ff;
+  --focus: #6ab8ff;
+  --status: #9db9d8;
+  --button-text: #ebf8ff;
 }
 
 * {
@@ -49,20 +49,20 @@ body {
   font-family: "Outfit", sans-serif;
   color: var(--text);
   background:
-    radial-gradient(circle at 8% 8%, #fffdfa 0, #0000 34%),
-    radial-gradient(circle at 86% 92%, #fff8e2 0, #0000 38%),
-    linear-gradient(140deg, var(--bg), var(--bg2));
+    radial-gradient(circle at 6% 8%, #ffffffa6 0, #0000 34%),
+    radial-gradient(circle at 92% 86%, #d9f1ff99 0, #0000 36%),
+    linear-gradient(150deg, var(--bg), var(--bg2));
 }
 
 body.dark {
   background:
-    radial-gradient(circle at 8% 8%, #2f250f66 0, #0000 34%),
-    radial-gradient(circle at 88% 92%, #30230e5e 0, #0000 38%),
-    linear-gradient(140deg, var(--bg), var(--bg2));
+    radial-gradient(circle at 6% 8%, #2a3f5f66 0, #0000 34%),
+    radial-gradient(circle at 92% 86%, #2a5a7a5e 0, #0000 36%),
+    linear-gradient(150deg, var(--bg), var(--bg2));
 }
 
 .app {
-  max-width: 1180px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 14px;
   display: grid;
@@ -73,64 +73,7 @@ body.dark {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 16px;
-  box-shadow: 0 12px 28px #15294614;
-}
-
-body:not(.dark) .card,
-body:not(.dark) .map-sidebar {
-  border-color: #f3e7c3;
-}
-
-body:not(.dark) .chip,
-body:not(.dark) input,
-body:not(.dark) select,
-body:not(.dark) .india-map,
-body:not(.dark) .india-heatmap-map,
-body:not(.dark) button.ghost {
-  border: 1px solid #f2e4ba;
-  box-shadow: none;
-}
-
-body:not(.dark) .map-sidebar {
-  border-left: 1px solid #f2e4ba;
-}
-
-body:not(.dark) h1,
-body:not(.dark) h2,
-body:not(.dark) .headline {
-  background: linear-gradient(120deg, #8c6400 0%, #d4af37 36%, #fff3bb 50%, #c79210 64%, #855d00 100%);
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  animation: gold-shine 7s linear infinite;
-}
-
-body:not(.dark) label,
-body:not(.dark) .status,
-body:not(.dark) .muted,
-body:not(.dark) .chip,
-body:not(.dark) li,
-body:not(.dark) button,
-body:not(.dark) .bar-top,
-body:not(.dark) .map-selected {
-  color: #9f7302;
-  -webkit-text-fill-color: initial;
-}
-
-::selection {
-  background: #d7b657;
-  color: #2b1d00;
-}
-
-@keyframes gold-shine {
-  from {
-    background-position: 0% center;
-  }
-  to {
-    background-position: 200% center;
-  }
+  box-shadow: 0 14px 28px #17314f14;
 }
 
 .hero {
@@ -168,6 +111,10 @@ body:not(.dark) .map-selected {
   gap: 8px;
 }
 
+.tight-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
 label {
   display: flex;
   flex-direction: column;
@@ -203,6 +150,14 @@ select:focus {
   margin-top: 10px;
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.panel-restores {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 button {
@@ -216,13 +171,25 @@ button {
 }
 
 button.secondary {
-  background: linear-gradient(100deg, var(--secondary), color-mix(in srgb, var(--primary-dark) 85%, #0000 15%));
+  background: linear-gradient(100deg, var(--secondary), color-mix(in srgb, var(--primary-dark) 84%, #0000 16%));
 }
 
 button.ghost {
-  background: color-mix(in srgb, var(--card) 86%, #0000 14%);
+  background: color-mix(in srgb, var(--card) 80%, #0000 20%);
   border: 1px solid var(--line);
   color: var(--text);
+}
+
+button.mini,
+.mini {
+  border: 1px solid var(--line);
+  background: var(--chip);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-left: 8px;
 }
 
 .status {
@@ -307,6 +274,33 @@ h2 {
   gap: 6px;
 }
 
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.panel-tools {
+  display: flex;
+  gap: 6px;
+}
+
+.panel-action {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  line-height: 1;
+}
+
+.heat-panel.minimized .panel-content {
+  display: none;
+}
+
+.heat-panel.hidden-panel {
+  display: none;
+}
+
 ul {
   margin: 0;
   padding-left: 16px;
@@ -333,6 +327,13 @@ li {
   padding: 8px;
   color: #fff;
   font-weight: 700;
+  transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
+}
+
+.heat-cell:hover {
+  transform: translateY(-2px);
+  filter: saturate(1.1);
+  box-shadow: 0 8px 18px #00000026;
 }
 
 .heat-cell small {
@@ -346,7 +347,7 @@ li {
   margin-top: 10px;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: linear-gradient(165deg, color-mix(in srgb, var(--chip) 82%, #fff 18%), color-mix(in srgb, var(--bg2) 72%, #fff 28%));
+  background: linear-gradient(165deg, color-mix(in srgb, var(--chip) 84%, #fff 16%), color-mix(in srgb, var(--bg2) 80%, #fff 20%));
   min-height: 340px;
   cursor: crosshair;
   overflow: hidden;
@@ -356,8 +357,12 @@ li {
   margin-top: 8px;
   border-radius: 14px;
   border: 1px solid var(--line);
-  background: linear-gradient(165deg, #fffef8, #fff7de);
+  background: linear-gradient(165deg, #f8fdff, #e8f3ff);
   overflow: hidden;
+}
+
+body.dark .india-heatmap-map {
+  background: linear-gradient(165deg, #17253a, #101c30);
 }
 
 .india-heatmap-map svg {
@@ -365,6 +370,7 @@ li {
   height: auto;
   min-height: 360px;
   display: block;
+  transition: filter 0.35s ease;
 }
 
 .india-map svg {
@@ -375,15 +381,15 @@ li {
 }
 
 .india-shape {
-  fill: color-mix(in srgb, #fffdf5 85%, #f0e3bb 15%);
-  stroke: #c19a2f;
-  stroke-width: 2.4;
+  fill: color-mix(in srgb, #f1f7ff 85%, #cce3f4 15%);
+  stroke: #4a7ca4;
+  stroke-width: 2.2;
 }
 
 body.dark .india-shape {
-  fill: color-mix(in srgb, var(--primary) 55%, #fff 45%);
-  stroke: color-mix(in srgb, var(--primary-dark) 65%, #5f4510 35%);
-  stroke-width: 3.4;
+  fill: color-mix(in srgb, #2a3e60 70%, #1b283f 30%);
+  stroke: #5f86b5;
+  stroke-width: 2.8;
 }
 
 .india-map-markers {
@@ -398,7 +404,7 @@ body.dark .india-shape {
   margin-left: -5px;
   margin-top: -5px;
   border-radius: 50%;
-  background: color-mix(in srgb, #9f780d 68%, #000 32%);
+  background: color-mix(in srgb, #0f7f9b 70%, #000 30%);
   border: 2px solid color-mix(in srgb, var(--card) 75%, #fff 25%);
   opacity: 0.78;
 }
@@ -465,9 +471,18 @@ body.dark .india-shape {
   margin: 0;
 }
 
+::selection {
+  background: #74b8ff;
+  color: #09213b;
+}
+
 @media (max-width: 960px) {
   .grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .tight-grid {
+    grid-template-columns: 1fr;
   }
 
   .panels {

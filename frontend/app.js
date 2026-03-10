@@ -1,6 +1,6 @@
 const apiBaseUrl = "http://127.0.0.1:8000";
 const apiKey = "dev-admin-key";
-const role = "analyst";
+const role = "admin";
 const indiaGeoJsonUrl = "https://cdn.jsdelivr.net/npm/world-geojson@3.4.0/countries/india.json";
 
 const cities = [
@@ -57,6 +57,32 @@ const $ = (id) => document.getElementById(id);
 const SVG_WIDTH = 420;
 const SVG_HEIGHT = 520;
 let mapProjection = null;
+let lastForecast = null;
+let hasIndiaBoundary = false;
+
+function headers() {
+  return {
+    "Content-Type": "application/json",
+    "x-api-key": apiKey,
+    "x-role": role,
+  };
+}
+
+async function apiGet(path) {
+  const res = await fetch(`${apiBaseUrl}${path}`, { headers: headers() });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function apiPost(path, body) {
+  const res = await fetch(`${apiBaseUrl}${path}`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
 
 function initCities() {
   const select = $("location");
@@ -64,17 +90,432 @@ function initCities() {
   select.value = "New Delhi";
 }
 
+function ensureFallbackProjection() {
+  if (mapProjection) return;
+  const coords = Object.values(cityGeo);
+  if (!coords.length) return;
+  let minLon = Number.POSITIVE_INFINITY;
+  let maxLon = Number.NEGATIVE_INFINITY;
+  let minLat = Number.POSITIVE_INFINITY;
+  let maxLat = Number.NEGATIVE_INFINITY;
+  for (const point of coords) {
+    minLon = Math.min(minLon, point.lon);
+    maxLon = Math.max(maxLon, point.lon);
+    minLat = Math.min(minLat, point.lat);
+    maxLat = Math.max(maxLat, point.lat);
+  }
+  const lonSpan = maxLon - minLon;
+  const latSpan = maxLat - minLat;
+  const pad = 18;
+  const scale = Math.min((SVG_WIDTH - pad * 2) / lonSpan, (SVG_HEIGHT - pad * 2) / latSpan);
+  const xPad = (SVG_WIDTH - lonSpan * scale) / 2;
+  const yPad = (SVG_HEIGHT - latSpan * scale) / 2;
+  mapProjection = { minLon, maxLon, minLat, maxLat, scale, xPad, yPad };
+}
+
+function setFullClipPath() {
+  $("india-heat-clip-paths").innerHTML = '<rect x="0" y="0" width="420" height="520"></rect>';
+}
+
+function setStatus(txt) {
+  $("status").textContent = txt;
+}
+
+function pct(v) {
+  return `${Math.round(Number(v) * 100)}%`;
+}
+
+function payload() {
+  const temp = Number($("temperature_c").value);
+  const humidity = Number($("humidity_pct").value);
+  const cloud = Number($("cloud_cover_pct").value);
+  const wind = Number($("wind_kph").value);
+  const dew = Math.max(0, Math.round(temp - (100 - humidity) / 5));
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const hour = now.getHours();
+  const season = month >= 6 && month <= 9 ? "monsoon" : month <= 2 ? "winter" : month <= 4 ? "spring" : month <= 5 ? "summer" : "autumn";
+
+  return {
+    location: $("location").value,
+    risk_mode: $("risk_mode").value,
+    horizon_hours: Number($("horizon_hours").value),
+    custom_thresholds: {},
+    observation: {
+      temperature_c: temp,
+      humidity_pct: humidity,
+      pressure_hpa: Math.max(980, Math.round(1014 - cloud / 6)),
+      wind_kph: wind,
+      cloud_cover_pct: cloud,
+      dew_point_c: dew,
+      recent_rain_mm: Math.max(0, Math.round((humidity + cloud - 135) / 8)),
+      uv_index: Math.max(1, Math.round((100 - cloud) / 13)),
+      visibility_km: Math.max(2, Math.round((110 - cloud) / 10)),
+      month,
+      hour_24: hour,
+      season,
+      terrain: "urban",
+      pressure_trend: $("pressure_trend").value,
+      source_confidence: {
+        manual: 0.8,
+        station: 0.86,
+        satellite: 0.83,
+        radar: 0.88,
+        model: 0.8,
+      },
+    },
+  };
+}
+
+function renderBars(items) {
+  $("probability-bars").innerHTML = items
+    .map(
+      (item) => `
+      <div class="bar">
+        <div class="bar-top"><span>${item.condition}</span><span>${pct(item.probability)}</span></div>
+        <div class="track"><div class="fill" style="width:${pct(item.probability)}"></div></div>
+      </div>
+    `
+    )
+    .join("");
+}
+
+function renderChips(targetId, obj) {
+  $(targetId).innerHTML = Object.entries(obj)
+    .map(([k, v]) => `<span class="chip">${k}: ${pct(v)}</span>`)
+    .join("");
+}
+
+function renderList(targetId, list, mapFn) {
+  $(targetId).innerHTML = list.map((x) => `<li>${mapFn(x)}</li>`).join("");
+}
+
+function renderMain(data) {
+  lastForecast = data;
+  $("headline").textContent = `${data.location}: ${data.predicted_condition.toUpperCase()} (${data.alert_level})`;
+  $("quick").innerHTML = `
+    <span class="chip">Rain ${pct(data.rain_probability)}</span>
+    <span class="chip">Rainfall ${data.expected_rainfall_mm} mm</span>
+    <span class="chip">Confidence ${pct(data.confidence_score)}</span>
+    <span class="chip">Mode ${data.risk_mode}</span>
+    <span class="chip">Climatology Blend ${pct(data.climatology_meta.blend_alpha)}</span>
+  `;
+
+  renderBars(data.condition_probabilities);
+  renderChips("bands", data.intensity_bands);
+  renderChips("events", data.event_probabilities);
+  $("scenarios").innerHTML = data.scenarios
+    .map((s) => `<div class="chip">${s.label}: ${pct(s.rain_probability)} | ${s.expected_rainfall_mm} mm</div>`)
+    .join("");
+  $("horizons").innerHTML = data.horizons
+    .map((h) => `<span class="chip">${h.horizon_hours}h ${h.predicted_condition} (${pct(h.rain_probability)})</span>`)
+    .join("");
+  $("quality").innerHTML = `
+    <div class="chip">Sensor Reliability: ${pct(data.data_quality.sensor_reliability)}</div>
+    <div class="chip">Uncertainty Penalty: ${pct(data.data_quality.uncertainty_penalty)}</div>
+    <div class="chip">Imputed: ${
+      data.data_quality.imputed_fields.length ? data.data_quality.imputed_fields.join(", ") : "none"
+    }</div>
+  `;
+  renderList("recommendations", data.expert_recommendations, (x) => x);
+  renderList("counterfactuals", data.counterfactuals, (x) => `${x.change} -> ${pct(x.impact_on_rain_probability)}`);
+  renderList("rule-trace", data.rule_trace, (x) => `${x.condition}: ${x.reason}`);
+  renderList("attribution", data.feature_attributions, (x) => `${x.factor} (${x.direction}, ${x.impact})`);
+}
+
+function heatColor(prob) {
+  const p = Number(prob);
+  if (p < 0.25) return "#45b36a";
+  if (p < 0.45) return "#d2a500";
+  if (p < 0.65) return "#d08b00";
+  if (p < 0.8) return "#c05f00";
+  return "#b00020";
+}
+
+function renderHeatmap(items) {
+  $("heatmap").innerHTML = items
+    .map(
+      (item) => `
+      <div class="heat-cell" style="background:${heatColor(item.rain_probability)}">
+        ${item.location}
+        <small>${pct(item.rain_probability)} rain | ${item.predicted_condition}</small>
+      </div>
+    `
+    )
+    .join("");
+}
+
+async function runForecast() {
+  setStatus("Running forecast...");
+  try {
+    const data = await apiPost("/api/v1/infer", payload());
+    renderMain(data);
+    setStatus("Forecast ready.");
+  } catch (error) {
+    setStatus(`Forecast failed: ${error.message}`);
+  }
+}
+
+async function runHeatmap() {
+  setStatus("Running city heatmap...");
+  try {
+    const selectedCity = $("location").value;
+    const heatmapCities = [selectedCity, ...cities.filter((c) => c !== selectedCity)].slice(0, 10);
+    const data = await apiPost("/api/v1/infer/multi-location", {
+      locations: heatmapCities,
+      observation: payload().observation,
+      horizon_hours: Number($("horizon_hours").value),
+      risk_mode: $("risk_mode").value,
+    });
+    renderHeatmap(data.items);
+    renderSpatialHeat(data.items);
+    setStatus(`Heatmap ready for ${data.count} cities.`);
+  } catch (error) {
+    setStatus(`Heatmap failed: ${error.message}`);
+  }
+}
+
+async function useLiveWeather() {
+  setStatus("Fetching live weather...");
+  try {
+    const city = $("location").value;
+    const geo = cityGeo[city];
+    if (!geo) throw new Error("Missing city coordinates");
+    const provider = $("live_provider").value;
+    const data = await apiGet(`/api/v1/live-weather?lat=${geo.lat}&lon=${geo.lon}&provider=${provider}`);
+    $("temperature_c").value = Number(data.temperature_c).toFixed(1);
+    $("humidity_pct").value = Math.round(Number(data.humidity_pct));
+    $("cloud_cover_pct").value = Math.round(Number(data.cloud_cover_pct));
+    $("wind_kph").value = Number(data.wind_kph).toFixed(1);
+    setStatus(`Live weather loaded from ${data.provider} (${data.source}).`);
+  } catch (error) {
+    setStatus(`Live weather failed: ${error.message}`);
+  }
+}
+
+async function submitOutcome() {
+  if (!lastForecast) {
+    setStatus("Run a forecast before submitting outcome.");
+    return;
+  }
+  setStatus("Submitting outcome...");
+  try {
+    const data = await apiPost("/api/v1/outcome", {
+      location: $("location").value,
+      risk_mode: $("risk_mode").value,
+      horizon_hours: Number($("horizon_hours").value),
+      predicted_rain_probability: Number(lastForecast.rain_probability),
+      actual_condition: $("actual_condition").value,
+      actual_rain_mm: Number($("actual_rain_mm").value),
+    });
+    $("calibration-view").innerHTML = `<div class="chip">Brier score recorded: ${data.brier_score}</div>`;
+    setStatus("Outcome submitted.");
+  } catch (error) {
+    setStatus(`Outcome submit failed: ${error.message}`);
+  }
+}
+
+async function loadCalibration() {
+  setStatus("Loading calibration...");
+  try {
+    const data = await apiGet(`/api/v1/calibration?location=${encodeURIComponent($("location").value)}`);
+    const bins = (data.reliability_bins || [])
+      .map((b) => `<div class="chip">bin ${b.prob_bin / 10}-${(b.prob_bin + 1) / 10}: obs ${pct(b.observed_rain_frequency)}</div>`)
+      .join("");
+    $("calibration-view").innerHTML = `
+      <div class="chip">Samples: ${data.overall.sample_count}</div>
+      <div class="chip">Avg Brier: ${data.overall.avg_brier_score}</div>
+      <div class="chip">Avg Abs Error: ${data.overall.avg_absolute_error}</div>
+      ${bins}
+    `;
+    setStatus("Calibration loaded.");
+  } catch (error) {
+    setStatus(`Calibration failed: ${error.message}`);
+  }
+}
+
+async function loadHistory() {
+  setStatus("Loading history...");
+  try {
+    const data = await apiGet(`/api/v1/history?limit=20&location=${encodeURIComponent($("location").value)}`);
+    $("history-view").innerHTML = (data.items || [])
+      .map((item) => `<div class="chip">${item.timestamp_utc.slice(0, 16)} | ${item.predicted_condition} | rain ${pct(item.rain_probability)} | ${item.alert_level}</div>`)
+      .join("");
+    setStatus("History loaded.");
+  } catch (error) {
+    setStatus(`History failed: ${error.message}`);
+  }
+}
+
+async function loadAnalytics() {
+  setStatus("Loading analytics...");
+  try {
+    const data = await apiGet(`/api/v1/history/analytics?location=${encodeURIComponent($("location").value)}`);
+    $("analytics-view").innerHTML = `
+      <div class="chip">Total forecasts: ${data.summary.total_forecasts}</div>
+      <div class="chip">Avg rain prob: ${pct(data.summary.avg_rain_probability)}</div>
+      <div class="chip">High alert ratio: ${pct(data.summary.high_alert_ratio)}</div>
+      ${data.timeline
+        .slice(0, 8)
+        .map((d) => `<div class="chip">${d.date}: ${d.count} runs | severe ${d.severe_count}</div>`)
+        .join("")}
+    `;
+    setStatus("Analytics loaded.");
+  } catch (error) {
+    setStatus(`Analytics failed: ${error.message}`);
+  }
+}
+
+async function createSubscription() {
+  setStatus("Creating subscription...");
+  try {
+    const data = await apiPost("/api/v1/alerts/subscriptions", {
+      name: $("sub_name").value,
+      channel: $("sub_channel").value,
+      target: $("sub_target").value,
+      location: $("location").value,
+      risk_mode: $("risk_mode").value,
+      min_rain_probability: Number($("sub_prob").value),
+      min_alert_level: $("sub_alert").value,
+      enabled: true,
+    });
+    setStatus(`Subscription created: ${data.id}`);
+    await loadSubscriptions();
+  } catch (error) {
+    setStatus(`Create subscription failed: ${error.message}`);
+  }
+}
+
+async function loadSubscriptions() {
+  setStatus("Loading subscriptions...");
+  try {
+    const data = await apiGet("/api/v1/alerts/subscriptions?all=true");
+    $("subscriptions-view").innerHTML = data.items
+      .map(
+        (item) =>
+          `<div class="chip">#${item.id} ${item.name} | ${item.channel} | ${item.location} | p>=${item.min_rain_probability} | ${
+            item.enabled ? "enabled" : "disabled"
+          } <button class="mini" data-sub-toggle="${item.id}" data-sub-enabled="${item.enabled ? "false" : "true"}">${
+            item.enabled ? "Disable" : "Enable"
+          }</button></div>`
+      )
+      .join("");
+    setStatus("Subscriptions loaded.");
+  } catch (error) {
+    setStatus(`Subscriptions failed: ${error.message}`);
+  }
+}
+
+async function loadNotifications() {
+  setStatus("Loading notifications...");
+  try {
+    const data = await apiGet("/api/v1/alerts/notifications?limit=30");
+    $("notifications-view").innerHTML = data.items
+      .map((item) => `<div class="chip">${item.timestamp_utc.slice(0, 16)} | sub#${item.subscription_id} | ${item.delivery_status}</div>`)
+      .join("");
+    setStatus("Notifications loaded.");
+  } catch (error) {
+    setStatus(`Notifications failed: ${error.message}`);
+  }
+}
+
+async function loadDatasetStats() {
+  setStatus("Loading dataset stats...");
+  try {
+    const data = await apiGet("/api/v1/dataset/stats");
+    $("dataset-view").innerHTML = `
+      <div class="chip">Rows: ${data.rows}</div>
+      <div class="chip">Cities: ${data.cities}</div>
+      <div class="chip">Climate zones: ${data.climate_zones}</div>
+      <div class="chip">Years: ${data.year_range[0]}-${data.year_range[1]}</div>
+      <div class="chip">Records per row: ${data.records_per_row}</div>
+    `;
+    setStatus("Dataset stats loaded.");
+  } catch (error) {
+    setStatus(`Dataset stats failed: ${error.message}`);
+  }
+}
+
+async function listKbVersions() {
+  setStatus("Loading KB versions...");
+  try {
+    const data = await apiGet("/api/v1/knowledge-base/versions");
+    $("kb-view").innerHTML = data.items
+      .map(
+        (item) =>
+          `<div class="chip">#${item.id} ${item.version_name} ${item.is_active ? "(active)" : ""} <button class="mini" data-kb-activate="${
+            item.id
+          }">Activate</button></div>`
+      )
+      .join("");
+    setStatus("KB versions loaded.");
+  } catch (error) {
+    setStatus(`KB versions failed: ${error.message}`);
+  }
+}
+
+async function createKbVersion() {
+  setStatus("Creating KB snapshot...");
+  try {
+    await apiPost("/api/v1/knowledge-base/versions", {
+      version_name: $("kb_version_name").value,
+      notes: $("kb_notes").value,
+      activate: false,
+    });
+    setStatus("KB snapshot created.");
+    await listKbVersions();
+  } catch (error) {
+    setStatus(`Create KB snapshot failed: ${error.message}`);
+  }
+}
+
+async function activateKbVersion(versionId) {
+  setStatus(`Activating KB version ${versionId}...`);
+  try {
+    await apiPost(`/api/v1/knowledge-base/versions/${versionId}/activate`, {});
+    setStatus(`KB version ${versionId} activated.`);
+    await listKbVersions();
+  } catch (error) {
+    setStatus(`Activate KB version failed: ${error.message}`);
+  }
+}
+
+async function runBatchJob() {
+  setStatus("Starting batch job...");
+  try {
+    const data = await apiPost("/api/v1/jobs/forecast-batch", {
+      locations: cities,
+      observation: payload().observation,
+      horizon_hours: Number($("horizon_hours").value),
+      risk_mode: $("risk_mode").value,
+      custom_thresholds: {},
+    });
+    setStatus(`Batch job started: ${data.job_id}`);
+    await loadBatchJobs();
+  } catch (error) {
+    setStatus(`Batch job failed: ${error.message}`);
+  }
+}
+
+async function loadBatchJobs() {
+  setStatus("Loading batch jobs...");
+  try {
+    const data = await apiGet("/api/v1/jobs/forecast-batch?limit=12");
+    $("batch-view").innerHTML = data.items
+      .map((job) => `<div class="chip">${job.job_id.slice(0, 8)} | ${job.status} | ${job.done}/${job.total}</div>`)
+      .join("");
+    setStatus("Batch jobs loaded.");
+  } catch (error) {
+    setStatus(`Batch jobs failed: ${error.message}`);
+  }
+}
+
 function projectLonLat(lon, lat) {
   if (!mapProjection) return null;
   const { minLon, maxLat, scale, xPad, yPad } = mapProjection;
   const x = (lon - minLon) * scale + xPad;
   const y = (maxLat - lat) * scale + yPad;
-  return {
-    x,
-    y,
-    xPct: (x / SVG_WIDTH) * 100,
-    yPct: (y / SVG_HEIGHT) * 100,
-  };
+  return { x, y, xPct: (x / SVG_WIDTH) * 100, yPct: (y / SVG_HEIGHT) * 100 };
 }
 
 function ringsFromGeometry(geometry) {
@@ -139,21 +580,18 @@ async function loadIndiaBoundary() {
         return `<path class="india-shape" d="${d}" />`;
       })
       .join("");
+    hasIndiaBoundary = true;
     $("india-geo-layer").innerHTML = paths;
     $("india-heat-geo-layer").innerHTML = paths;
     $("india-heat-clip-paths").innerHTML = paths;
   } catch (error) {
+    hasIndiaBoundary = false;
+    ensureFallbackProjection();
+    setFullClipPath();
+    $("india-geo-layer").innerHTML = "";
+    $("india-heat-geo-layer").innerHTML = "";
     $("map-heat-info").textContent = `Boundary load failed: ${error.message}`;
   }
-}
-
-function heatColor(prob) {
-  const p = Number(prob);
-  if (p < 0.25) return "#45b36a";
-  if (p < 0.45) return "#d2a500";
-  if (p < 0.65) return "#d08b00";
-  if (p < 0.8) return "#c05f00";
-  return "#b00020";
 }
 
 function renderMapMarkers() {
@@ -168,13 +606,7 @@ function renderMapMarkers() {
     .map((city) => {
       const point = projectLonLat(cityGeo[city].lon, cityGeo[city].lat);
       const isActive = city === $("location").value;
-      return `
-        <span
-          class="map-dot ${isActive ? "active" : ""}"
-          style="left:${point.xPct}%;top:${point.yPct}%"
-          title="${city}"
-        ></span>
-      `;
+      return `<span class="map-dot ${isActive ? "active" : ""}" style="left:${point.xPct}%;top:${point.yPct}%" title="${city}"></span>`;
     })
     .join("");
 
@@ -225,6 +657,7 @@ function rgbToCss(rgb, alpha) {
 }
 
 function renderSpatialHeat(items) {
+  ensureFallbackProjection();
   if (!mapProjection) return;
   const surfaceLayer = $("india-heat-surface");
   const blurLayer = $("india-heat-spots");
@@ -241,9 +674,13 @@ function renderSpatialHeat(items) {
     return { x: p.x, y: p.y, w: Number(item.rain_probability) };
   });
 
-  const sigma = 44;
+  if (!hasIndiaBoundary) {
+    setFullClipPath();
+  }
+
+  const sigma = 52;
   const sigma2 = sigma * sigma;
-  const grid = 7;
+  const grid = 4;
   const cells = [];
   let maxVal = 0;
 
@@ -268,9 +705,9 @@ function renderSpatialHeat(items) {
   surfaceLayer.innerHTML = cells
     .map((cell) => {
       const norm = cell.v / maxVal;
-      if (norm < 0.06) return "";
+      if (norm < 0.03) return "";
       const rgb = heatScaleRgb(norm);
-      const alpha = 0.18 + Math.pow(norm, 0.85) * 0.72;
+      const alpha = 0.08 + Math.pow(norm, 0.9) * 0.72;
       return `<rect x="${cell.x}" y="${cell.y}" width="${grid}" height="${grid}" fill="${rgbToCss(rgb, alpha)}"></rect>`;
     })
     .join("");
@@ -280,8 +717,8 @@ function renderSpatialHeat(items) {
       const p = projectLonLat(cityGeo[item.location].lon, cityGeo[item.location].lat);
       const pr = Number(item.rain_probability);
       const rgb = heatScaleRgb(pr);
-      const radius = 14 + pr * 20;
-      return `<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${radius.toFixed(2)}" fill="${rgbToCss(rgb, 0.4)}"></circle>`;
+      const radius = 18 + pr * 26;
+      return `<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${radius.toFixed(2)}" fill="${rgbToCss(rgb, 0.5)}"></circle>`;
     })
     .join("");
 
@@ -290,10 +727,36 @@ function renderSpatialHeat(items) {
       const p = projectLonLat(cityGeo[item.location].lon, cityGeo[item.location].lat);
       const pr = Number(item.rain_probability);
       const rgb = heatScaleRgb(pr);
-      const radius = 3.5 + pr * 5;
+      const radius = 3.5 + pr * 6.2;
       return `<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${radius.toFixed(2)}" fill="${rgbToCss(rgb, 0.95)}"></circle>`;
     })
     .join("");
+}
+
+function renderRestoreButtons() {
+  const wrap = $("panel-restores");
+  const hiddenPanels = Array.from(document.querySelectorAll(".heat-panel.hidden-panel"));
+  if (!hiddenPanels.length) {
+    wrap.innerHTML = "";
+    return;
+  }
+  wrap.innerHTML = hiddenPanels
+    .map((panel) => {
+      const title = panel.querySelector("h2")?.textContent || "Panel";
+      return `<button class="mini" data-panel-restore="${panel.id}" type="button">Restore ${title}</button>`;
+    })
+    .join("");
+}
+
+function handlePanelAction(action, panelId) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  if (action === "minimize") {
+    panel.classList.toggle("minimized");
+  } else if (action === "close") {
+    panel.classList.add("hidden-panel");
+  }
+  renderRestoreButtons();
 }
 
 function openMapSidebar() {
@@ -308,173 +771,65 @@ function closeMapSidebar() {
   $("map-sidebar").setAttribute("aria-hidden", "true");
 }
 
-function payload() {
-  const temp = Number($("temperature_c").value);
-  const humidity = Number($("humidity_pct").value);
-  const cloud = Number($("cloud_cover_pct").value);
-  const wind = Number($("wind_kph").value);
-  const dew = Math.max(0, Math.round(temp - (100 - humidity) / 5));
-  return {
-    location: $("location").value,
-    risk_mode: $("risk_mode").value,
-    horizon_hours: Number($("horizon_hours").value),
-    custom_thresholds: {},
-    observation: {
-      temperature_c: temp,
-      humidity_pct: humidity,
-      pressure_hpa: Math.max(980, Math.round(1014 - cloud / 6)),
-      wind_kph: wind,
-      cloud_cover_pct: cloud,
-      dew_point_c: dew,
-      recent_rain_mm: Math.max(0, Math.round((humidity + cloud - 135) / 8)),
-      uv_index: Math.max(1, Math.round((100 - cloud) / 13)),
-      visibility_km: Math.max(2, Math.round((110 - cloud) / 10)),
-      month: 7,
-      hour_24: 16,
-      season: "monsoon",
-      terrain: "urban",
-      pressure_trend: $("pressure_trend").value,
-      source_confidence: {
-        manual: 0.8,
-        station: 0.86,
-        satellite: 0.83,
-        radar: 0.88,
-        model: 0.8,
-      },
-    },
-  };
-}
-
-function headers() {
-  return {
-    "Content-Type": "application/json",
-    "x-api-key": apiKey,
-    "x-role": role,
-  };
-}
-
-function pct(v) {
-  return `${Math.round(Number(v) * 100)}%`;
-}
-
-function setStatus(txt) {
-  $("status").textContent = txt;
-}
-
-function renderBars(items) {
-  $("probability-bars").innerHTML = items
-    .map(
-      (item) => `
-      <div class="bar">
-        <div class="bar-top"><span>${item.condition}</span><span>${pct(item.probability)}</span></div>
-        <div class="track"><div class="fill" style="width:${pct(item.probability)}"></div></div>
-      </div>
-    `
-    )
-    .join("");
-}
-
-function renderChips(targetId, obj) {
-  $(targetId).innerHTML = Object.entries(obj)
-    .map(([k, v]) => `<span class="chip">${k}: ${pct(v)}</span>`)
-    .join("");
-}
-
-function renderList(targetId, list, mapFn) {
-  $(targetId).innerHTML = list.map((x) => `<li>${mapFn(x)}</li>`).join("");
-}
-
-function renderMain(data) {
-  $("headline").textContent = `${data.location}: ${data.predicted_condition.toUpperCase()} (${data.alert_level})`;
-  $("quick").innerHTML = `
-    <span class="chip">Rain ${pct(data.rain_probability)}</span>
-    <span class="chip">Rainfall ${data.expected_rainfall_mm} mm</span>
-    <span class="chip">Confidence ${pct(data.confidence_score)}</span>
-    <span class="chip">Mode ${data.risk_mode}</span>
-  `;
-
-  renderBars(data.condition_probabilities);
-  renderChips("bands", data.intensity_bands);
-  renderChips("events", data.event_probabilities);
-  $("scenarios").innerHTML = data.scenarios
-    .map((s) => `<div class="chip">${s.label}: ${pct(s.rain_probability)} | ${s.expected_rainfall_mm} mm</div>`)
-    .join("");
-  $("horizons").innerHTML = data.horizons
-    .map((h) => `<span class="chip">${h.horizon_hours}h ${h.predicted_condition} (${pct(h.rain_probability)})</span>`)
-    .join("");
-  $("quality").innerHTML = `
-    <div class="chip">Sensor Reliability: ${pct(data.data_quality.sensor_reliability)}</div>
-    <div class="chip">Uncertainty Penalty: ${pct(data.data_quality.uncertainty_penalty)}</div>
-    <div class="chip">Imputed: ${
-      data.data_quality.imputed_fields.length ? data.data_quality.imputed_fields.join(", ") : "none"
-    }</div>
-  `;
-  renderList("recommendations", data.expert_recommendations, (x) => x);
-  renderList("counterfactuals", data.counterfactuals, (x) => `${x.change} -> ${pct(x.impact_on_rain_probability)}`);
-  renderList("rule-trace", data.rule_trace, (x) => `${x.condition}: ${x.reason}`);
-  renderList("attribution", data.feature_attributions, (x) => `${x.factor} (${x.direction}, ${x.impact})`);
-}
-
-function renderHeatmap(items) {
-  $("heatmap").innerHTML = items
-    .map(
-      (item) => `
-      <div class="heat-cell" style="background:${heatColor(item.rain_probability)}">
-        ${item.location}
-        <small>${pct(item.rain_probability)} rain | ${item.predicted_condition}</small>
-      </div>
-    `
-    )
-    .join("");
-}
-
-async function runForecast() {
-  setStatus("Running forecast...");
-  try {
-    const res = await fetch(`${apiBaseUrl}/api/v1/infer`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify(payload()),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    renderMain(data);
-    setStatus("Forecast ready.");
-  } catch (error) {
-    setStatus(`Forecast failed: ${error.message}`);
-  }
-}
-
-async function runHeatmap() {
-  setStatus("Running city heatmap...");
-  try {
-    const selectedCity = $("location").value;
-    const heatmapCities = [selectedCity, ...cities.filter((c) => c !== selectedCity)].slice(0, 10);
-    const body = {
-      locations: heatmapCities,
-      observation: payload().observation,
-      horizon_hours: Number($("horizon_hours").value),
-      risk_mode: $("risk_mode").value,
-    };
-    const res = await fetch(`${apiBaseUrl}/api/v1/infer/multi-location`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    renderHeatmap(data.items);
-    renderSpatialHeat(data.items);
-    setStatus(`Heatmap ready for ${data.count} cities.`);
-  } catch (error) {
-    setStatus(`Heatmap failed: ${error.message}`);
-  }
-}
-
 initCities();
+setFullClipPath();
 loadIndiaBoundary().then(renderMapMarkers);
+
 $("run").addEventListener("click", runForecast);
 $("run-multi").addEventListener("click", runHeatmap);
+$("fetch-live").addEventListener("click", useLiveWeather);
+$("run-batch").addEventListener("click", runBatchJob);
+
+$("submit-outcome").addEventListener("click", submitOutcome);
+$("load-calibration").addEventListener("click", loadCalibration);
+$("load-history").addEventListener("click", loadHistory);
+$("load-analytics").addEventListener("click", loadAnalytics);
+$("create-subscription").addEventListener("click", createSubscription);
+$("load-subscriptions").addEventListener("click", loadSubscriptions);
+$("load-notifications").addEventListener("click", loadNotifications);
+$("dataset-stats").addEventListener("click", loadDatasetStats);
+$("list-kb-versions").addEventListener("click", listKbVersions);
+$("create-kb-version").addEventListener("click", createKbVersion);
+$("list-batch-jobs").addEventListener("click", loadBatchJobs);
+document.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const panelAction = target.getAttribute("data-panel-action");
+  const panelId = target.getAttribute("data-panel-id");
+  if (panelAction && panelId) {
+    handlePanelAction(panelAction, panelId);
+    return;
+  }
+  const restoreId = target.getAttribute("data-panel-restore");
+  if (restoreId) {
+    const panel = document.getElementById(restoreId);
+    if (!panel) return;
+    panel.classList.remove("hidden-panel");
+    panel.classList.remove("minimized");
+    renderRestoreButtons();
+  }
+});
+
+$("subscriptions-view").addEventListener("click", async (event) => {
+  const target = event.target;
+  const subId = target.getAttribute("data-sub-toggle");
+  if (!subId) return;
+  const nextEnabled = target.getAttribute("data-sub-enabled") === "true";
+  try {
+    await apiPost(`/api/v1/alerts/subscriptions/${subId}/toggle?enabled=${nextEnabled}`, {});
+    await loadSubscriptions();
+  } catch (error) {
+    setStatus(`Subscription toggle failed: ${error.message}`);
+  }
+});
+
+$("kb-view").addEventListener("click", async (event) => {
+  const target = event.target;
+  const versionId = target.getAttribute("data-kb-activate");
+  if (!versionId) return;
+  await activateKbVersion(versionId);
+});
+
 $("location").addEventListener("change", renderMapMarkers);
 $("map-toggle").addEventListener("click", openMapSidebar);
 $("map-close").addEventListener("click", closeMapSidebar);

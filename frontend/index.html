@@ -16,7 +16,7 @@
     <main class="app">
       <header class="hero card">
         <h1>SkyCast Expert Console</h1>
-        <p>Full probabilistic weather intelligence with scenarios, event windows, and city heatmap.</p>
+        <p>Full probabilistic weather intelligence with scenarios, event windows, city heatmap, and backend ops controls.</p>
         <div class="hero-actions">
           <button id="theme-toggle" class="theme-toggle" type="button">Dark Mode</button>
           <button id="map-toggle" class="theme-toggle ghost" type="button">Open India Map</button>
@@ -46,6 +46,13 @@
               <option value="24">24h</option>
             </select>
           </label>
+          <label>Live Provider
+            <select id="live_provider">
+              <option value="auto">auto</option>
+              <option value="open-meteo">open-meteo</option>
+              <option value="wttr">wttr</option>
+            </select>
+          </label>
           <label>Temperature (C)
             <input id="temperature_c" type="number" value="31" />
           </label>
@@ -69,7 +76,10 @@
         <div class="action-row">
           <button id="run">Run Forecast</button>
           <button id="run-multi" class="secondary">Run City Heatmap</button>
+          <button id="fetch-live" class="ghost">Use Live Weather</button>
+          <button id="run-batch" class="ghost">Start Batch Job</button>
         </div>
+        <div id="panel-restores" class="panel-restores"></div>
         <div id="status" class="status">Ready.</div>
       </section>
 
@@ -121,30 +131,148 @@
         </article>
       </section>
 
-      <section class="card panel">
-        <h2>City Rain Heatmap</h2>
-        <p class="muted">Probability grid from multi-location endpoint.</p>
-        <div id="heatmap" class="heatmap"></div>
+      <section class="panels">
+        <article class="card panel">
+          <h2>Outcome Verification</h2>
+          <div class="grid tight-grid">
+            <label>Actual Condition
+              <select id="actual_condition">
+                <option value="clear">clear</option>
+                <option value="cloudy">cloudy</option>
+                <option value="rain">rain</option>
+                <option value="drizzle">drizzle</option>
+                <option value="thunderstorm">thunderstorm</option>
+                <option value="fog">fog</option>
+                <option value="windy">windy</option>
+              </select>
+            </label>
+            <label>Actual Rain (mm)
+              <input id="actual_rain_mm" type="number" value="0" min="0" step="0.1" />
+            </label>
+          </div>
+          <div class="action-row">
+            <button id="submit-outcome" class="secondary">Submit Outcome</button>
+            <button id="load-calibration" class="ghost">Load Calibration</button>
+          </div>
+          <div id="calibration-view" class="stack"></div>
+        </article>
+
+        <article class="card panel">
+          <h2>History Analytics</h2>
+          <div class="action-row">
+            <button id="load-history" class="secondary">Load History</button>
+            <button id="load-analytics" class="ghost">Load Analytics</button>
+          </div>
+          <div id="history-view" class="stack"></div>
+          <div id="analytics-view" class="stack"></div>
+        </article>
+
+        <article class="card panel">
+          <h2>Alert Subscriptions</h2>
+          <div class="grid tight-grid">
+            <label>Name
+              <input id="sub_name" type="text" value="High Rain Alert" />
+            </label>
+            <label>Channel
+              <select id="sub_channel">
+                <option value="log">log</option>
+                <option value="webhook">webhook</option>
+                <option value="email">email</option>
+                <option value="sms">sms</option>
+              </select>
+            </label>
+            <label>Target
+              <input id="sub_target" type="text" placeholder="Webhook URL or address" />
+            </label>
+            <label>Min Rain Prob
+              <input id="sub_prob" type="number" value="0.6" min="0" max="1" step="0.01" />
+            </label>
+            <label>Min Alert Level
+              <select id="sub_alert">
+                <option value="moderate">moderate</option>
+                <option value="high" selected>high</option>
+                <option value="severe">severe</option>
+              </select>
+            </label>
+          </div>
+          <div class="action-row">
+            <button id="create-subscription" class="secondary">Create Subscription</button>
+            <button id="load-subscriptions" class="ghost">Load Subscriptions</button>
+            <button id="load-notifications" class="ghost">Load Notifications</button>
+          </div>
+          <div id="subscriptions-view" class="stack"></div>
+          <div id="notifications-view" class="stack"></div>
+        </article>
+
+        <article class="card panel">
+          <h2>Dataset + Knowledge Base Ops</h2>
+          <div class="grid tight-grid">
+            <label>KB Version Name
+              <input id="kb_version_name" type="text" value="ops-snapshot" />
+            </label>
+            <label>KB Notes
+              <input id="kb_notes" type="text" value="snapshot from frontend" />
+            </label>
+          </div>
+          <div class="action-row">
+            <button id="dataset-stats" class="secondary">Dataset Stats</button>
+            <button id="list-kb-versions" class="ghost">KB Versions</button>
+            <button id="create-kb-version" class="ghost">Create KB Snapshot</button>
+          </div>
+          <div id="dataset-view" class="stack"></div>
+          <div id="kb-view" class="stack"></div>
+        </article>
+
+        <article class="card panel">
+          <h2>Batch Jobs</h2>
+          <p class="muted">Runs forecasts asynchronously across all loaded cities using current observation profile.</p>
+          <div class="action-row">
+            <button id="list-batch-jobs" class="secondary">List Jobs</button>
+          </div>
+          <div id="batch-view" class="stack"></div>
+        </article>
       </section>
 
-      <section class="card panel">
-        <h2>India Spatial Heatmap</h2>
-        <p class="muted">Green low risk, yellow medium, red high rain concentration.</p>
-        <div class="india-heatmap-map" aria-label="India heatmap map">
-          <svg viewBox="0 0 420 520" aria-hidden="true">
-            <defs>
-              <filter id="heat-blur" x="-30%" y="-30%" width="160%" height="160%">
-                <feGaussianBlur stdDeviation="14" />
-              </filter>
-              <clipPath id="india-clip">
-                <g id="india-heat-clip-paths"></g>
-              </clipPath>
-            </defs>
-            <g id="india-heat-surface" clip-path="url(#india-clip)"></g>
-            <g id="india-heat-geo-layer"></g>
-            <g id="india-heat-spots" filter="url(#heat-blur)" clip-path="url(#india-clip)"></g>
-            <g id="india-heat-spots-core" clip-path="url(#india-clip)"></g>
-          </svg>
+      <section id="city-heat-section" class="card panel heat-panel">
+        <div class="panel-head">
+          <h2>City Rain Heatmap</h2>
+          <div class="panel-tools">
+            <button class="mini panel-action" data-panel-action="minimize" data-panel-id="city-heat-section" type="button">_</button>
+            <button class="mini panel-action" data-panel-action="close" data-panel-id="city-heat-section" type="button">x</button>
+          </div>
+        </div>
+        <div class="panel-content">
+          <p class="muted">Probability grid from multi-location endpoint.</p>
+          <div id="heatmap" class="heatmap"></div>
+        </div>
+      </section>
+
+      <section id="spatial-heat-section" class="card panel heat-panel">
+        <div class="panel-head">
+          <h2>India Spatial Heatmap</h2>
+          <div class="panel-tools">
+            <button class="mini panel-action" data-panel-action="minimize" data-panel-id="spatial-heat-section" type="button">_</button>
+            <button class="mini panel-action" data-panel-action="close" data-panel-id="spatial-heat-section" type="button">x</button>
+          </div>
+        </div>
+        <div class="panel-content">
+          <p class="muted">Green low risk, yellow medium, red high rain concentration.</p>
+          <div class="india-heatmap-map" aria-label="India heatmap map">
+            <svg viewBox="0 0 420 520" aria-hidden="true">
+              <defs>
+                <filter id="heat-blur" x="-30%" y="-30%" width="160%" height="160%">
+                  <feGaussianBlur stdDeviation="18" />
+                </filter>
+                <clipPath id="india-clip">
+                  <g id="india-heat-clip-paths"></g>
+                </clipPath>
+              </defs>
+              <g id="india-heat-surface" clip-path="url(#india-clip)"></g>
+              <g id="india-heat-geo-layer"></g>
+              <g id="india-heat-spots" filter="url(#heat-blur)" clip-path="url(#india-clip)"></g>
+              <g id="india-heat-spots-core" clip-path="url(#india-clip)"></g>
+            </svg>
+          </div>
         </div>
       </section>
 

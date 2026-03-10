@@ -94,6 +94,18 @@ RISK_MODE_THRESHOLDS = {
 }
 
 
+def export_knowledge_base() -> dict:
+    return {
+        "base_priors": BASE_PRIORS,
+        "seasonal_multipliers": SEASONAL_MULTIPLIERS,
+        "terrain_multipliers": TERRAIN_MULTIPLIERS,
+        "climate_zone_multipliers": CLIMATE_ZONE_MULTIPLIERS,
+        "monthly_multipliers": MONTHLY_MULTIPLIERS,
+        "risk_mode_alert_weights": RISK_MODE_ALERT_WEIGHTS,
+        "risk_mode_thresholds": RISK_MODE_THRESHOLDS,
+    }
+
+
 def infer_climate_zone(location: str) -> str:
     hint = location.strip().lower()
     return CLIMATE_ZONE_BY_LOCATION_HINT.get(hint, "continental")

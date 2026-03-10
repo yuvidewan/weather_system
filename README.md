@@ -40,6 +40,13 @@ expert_system/
 - Intensity band probabilities (`light`, `moderate`, `heavy`, `extreme`)
 - Risk mode profiles (`general`, `agriculture`, `travel`, `events`, `logistics`)
 - Persistent history and audit storage in SQLite
+- Forecast verification + calibration tracking (`/api/v1/outcome`, `/api/v1/calibration`)
+- Alert subscriptions + notification log (webhook/email/sms/log channels)
+- History filtering + analytics endpoints
+- Async batch forecast jobs
+- Runtime knowledge-base version snapshots + activation
+- Multi-provider live weather ingestion with cache
+- Large synthetic climatology dataset for low-weight prior smoothing (variance control, not direct fitting)
 - Professional frontend command console with advanced visual panels
 
 ## Backend Setup (Python)
@@ -104,6 +111,32 @@ By default, UI points to `http://127.0.0.1:8000`.
   - Returns priors and expanded multipliers/thresholds used by the expert system
 - `GET /api/v1/history`
   - Returns persisted forecast history
+- `GET /api/v1/history/analytics`
+  - Aggregate forecast metrics, timeline, and location-level rollups
+- `POST /api/v1/outcome`
+  - Submit observed outcomes and compute Brier score
+- `GET /api/v1/calibration`
+  - Calibration and reliability-bin summaries
+- `POST /api/v1/alerts/subscriptions`
+  - Create alert subscriptions
+- `GET /api/v1/alerts/subscriptions`
+  - List subscriptions
+- `GET /api/v1/alerts/notifications`
+  - Notification delivery log
+- `POST /api/v1/jobs/forecast-batch`
+  - Async multi-location forecast job
+- `GET /api/v1/jobs/forecast-batch`
+  - List batch jobs
+- `GET /api/v1/jobs/forecast-batch/{job_id}`
+  - Inspect one batch job
+- `GET /api/v1/dataset/stats`
+  - Climatology dataset metadata
+- `GET /api/v1/knowledge-base/versions`
+  - List KB snapshots
+- `POST /api/v1/knowledge-base/versions`
+  - Create KB snapshot
+- `POST /api/v1/knowledge-base/versions/{id}/activate`
+  - Activate KB snapshot
 - `GET /health`
 
 ## Example Inference Request

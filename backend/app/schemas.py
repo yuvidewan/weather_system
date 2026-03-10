@@ -93,6 +93,12 @@ class DataQuality(BaseModel):
     uncertainty_penalty: float = Field(..., ge=0, le=1)
 
 
+class ClimatologyMeta(BaseModel):
+    city: str
+    sample_count: int = Field(..., ge=0)
+    blend_alpha: float = Field(..., ge=0, le=1)
+
+
 class InferenceResponse(BaseModel):
     location: str
     risk_mode: RiskMode
@@ -113,6 +119,7 @@ class InferenceResponse(BaseModel):
     event_probabilities: EventProbabilities
     intensity_bands: RainIntensityBands
     data_quality: DataQuality
+    climatology_meta: ClimatologyMeta
     explanation: str
 
 
@@ -133,3 +140,38 @@ class MultiLocationItem(BaseModel):
 class MultiLocationResponse(BaseModel):
     count: int
     items: list[MultiLocationItem]
+
+
+class OutcomeReportRequest(BaseModel):
+    location: str = Field(..., max_length=80)
+    risk_mode: RiskMode = "general"
+    horizon_hours: int = Field(6, ge=1, le=24)
+    predicted_rain_probability: float = Field(..., ge=0, le=1)
+    actual_condition: ConditionName
+    actual_rain_mm: float = Field(..., ge=0)
+    timestamp_utc: str | None = None
+
+
+class AlertSubscriptionRequest(BaseModel):
+    name: str = Field(..., min_length=3, max_length=80)
+    channel: Literal["webhook", "email", "sms", "log"] = "log"
+    target: str = Field("", max_length=240)
+    location: str = Field("*", max_length=80)
+    risk_mode: RiskMode | Literal["*"] = "*"
+    min_rain_probability: float = Field(0.5, ge=0, le=1)
+    min_alert_level: Literal["low", "moderate", "high", "severe"] = "high"
+    enabled: bool = True
+
+
+class BatchJobRequest(BaseModel):
+    locations: list[str] = Field(..., min_length=1, max_length=40)
+    observation: WeatherObservation
+    horizon_hours: int = Field(6, ge=1, le=24)
+    risk_mode: RiskMode = "general"
+    custom_thresholds: dict[str, float] = Field(default_factory=dict)
+
+
+class KnowledgeBaseVersionCreateRequest(BaseModel):
+    version_name: str = Field(..., min_length=3, max_length=80)
+    notes: str = Field("", max_length=400)
+    activate: bool = False

@@ -4,21 +4,22 @@ import math
 import random
 from typing import Any
 
+from .climatology_dataset import climatology_distribution
 from .data_intelligence import apply_historical_baseline, data_quality
 from .knowledge_base import (
-    BASE_PRIORS,
-    CLIMATE_ZONE_MULTIPLIERS,
-    MONTHLY_MULTIPLIERS,
-    RISK_MODE_ALERT_WEIGHTS,
-    RISK_MODE_THRESHOLDS,
-    SEASONAL_MULTIPLIERS,
-    TERRAIN_MULTIPLIERS,
+    BASE_PRIORS as DEFAULT_BASE_PRIORS,
+    CLIMATE_ZONE_MULTIPLIERS as DEFAULT_CLIMATE_ZONE_MULTIPLIERS,
+    MONTHLY_MULTIPLIERS as DEFAULT_MONTHLY_MULTIPLIERS,
+    RISK_MODE_ALERT_WEIGHTS as DEFAULT_RISK_MODE_ALERT_WEIGHTS,
+    RISK_MODE_THRESHOLDS as DEFAULT_RISK_MODE_THRESHOLDS,
+    SEASONAL_MULTIPLIERS as DEFAULT_SEASONAL_MULTIPLIERS,
+    TERRAIN_MULTIPLIERS as DEFAULT_TERRAIN_MULTIPLIERS,
     expert_rules,
     infer_climate_zone,
 )
 
 
-CONDITIONS = list(BASE_PRIORS.keys())
+CONDITIONS = list(DEFAULT_BASE_PRIORS.keys())
 DEFAULT_HORIZONS = [1, 3, 6, 12, 24]
 
 
@@ -100,14 +101,19 @@ def _apply_knowledge_multipliers(
     obs: dict[str, Any],
     location: str,
     feature_contrib: dict[str, float],
+    *,
+    seasonal_multipliers: dict[str, dict[str, float]],
+    terrain_multipliers: dict[str, dict[str, float]],
+    climate_zone_multipliers: dict[str, dict[str, float]],
+    monthly_multipliers: dict[int, dict[str, float]],
 ) -> tuple[dict[str, float], dict[str, float], str]:
     climate_zone = infer_climate_zone(location)
     impact_trace: dict[str, float] = {}
     for condition in CONDITIONS:
-        season_mult = SEASONAL_MULTIPLIERS.get(obs["season"], {}).get(condition, 1.0)
-        terrain_mult = TERRAIN_MULTIPLIERS.get(obs["terrain"], {}).get(condition, 1.0)
-        climate_mult = CLIMATE_ZONE_MULTIPLIERS.get(climate_zone, {}).get(condition, 1.0)
-        month_mult = MONTHLY_MULTIPLIERS.get(obs["month"], {}).get(condition, 1.0)
+        season_mult = seasonal_multipliers.get(obs["season"], {}).get(condition, 1.0)
+        terrain_mult = terrain_multipliers.get(obs["terrain"], {}).get(condition, 1.0)
+        climate_mult = climate_zone_multipliers.get(climate_zone, {}).get(condition, 1.0)
+        month_mult = monthly_multipliers.get(obs["month"], {}).get(condition, 1.0)
         blend = feature_contrib[condition] * season_mult * terrain_mult * climate_mult * month_mult
         scores[condition] += blend
         impact_trace[f"feature::{condition}"] = blend
@@ -165,10 +171,19 @@ def _expected_rainfall_mm(obs: dict[str, Any], rain_prob: float, thunder_prob: f
     return round(sum(samples) / len(samples), 2)
 
 
-def _alert_level(rain_prob: float, thunder_prob: float, wind_prob: float, risk_mode: str, thresholds: dict[str, float]) -> str:
-    weights = RISK_MODE_ALERT_WEIGHTS.get(risk_mode, RISK_MODE_ALERT_WEIGHTS["general"])
+def _alert_level(
+    rain_prob: float,
+    thunder_prob: float,
+    wind_prob: float,
+    risk_mode: str,
+    thresholds: dict[str, float],
+    *,
+    risk_mode_alert_weights: dict[str, dict[str, float]],
+    risk_mode_thresholds: dict[str, dict[str, float]],
+) -> str:
+    weights = risk_mode_alert_weights.get(risk_mode, risk_mode_alert_weights["general"])
     score = weights["rain"] * rain_prob + weights["thunderstorm"] * thunder_prob + weights["windy"] * wind_prob
-    config = {**RISK_MODE_THRESHOLDS.get(risk_mode, RISK_MODE_THRESHOLDS["general"]), **thresholds}
+    config = {**risk_mode_thresholds.get(risk_mode, risk_mode_thresholds["general"]), **thresholds}
     if score >= config["severe"]:
         return "severe"
     if score >= config["high"]:
@@ -253,10 +268,24 @@ def _feature_attributions(feature_scores: dict[str, float]) -> list[dict[str, An
     ]
 
 
-def _horizon_projection(obs: dict[str, Any], location: str, risk_mode: str, thresholds: dict[str, float]) -> list[dict[str, Any]]:
+def _horizon_projection(
+    obs: dict[str, Any],
+    location: str,
+    risk_mode: str,
+    thresholds: dict[str, float],
+    knowledge_base: dict[str, Any],
+) -> list[dict[str, Any]]:
     horizons: list[dict[str, Any]] = []
     for horizon in DEFAULT_HORIZONS:
-        core = infer_weather(obs, location=location, horizon_hours=horizon, risk_mode=risk_mode, custom_thresholds=thresholds, include_horizons=False)
+        core = infer_weather(
+            obs,
+            location=location,
+            horizon_hours=horizon,
+            risk_mode=risk_mode,
+            custom_thresholds=thresholds,
+            include_horizons=False,
+            knowledge_base=knowledge_base,
+        )
         horizons.append(
             {
                 "horizon_hours": horizon,
@@ -269,6 +298,21 @@ def _horizon_projection(obs: dict[str, Any], location: str, risk_mode: str, thre
     return horizons
 
 
+def _climatology_smoothing(probabilities: dict[str, float], location: str, month: int) -> tuple[dict[str, float], dict[str, Any]]:
+    climatology = climatology_distribution(location, month)
+    sample_count = climatology["sample_count"]
+    alpha = _clamp(sample_count / 2000, 0.05, 0.16)
+    smoothed: dict[str, float] = {}
+    for condition, prob in probabilities.items():
+        prior = climatology["distribution"].get(condition, prob)
+        smoothed[condition] = _clamp((1 - alpha) * prob + alpha * prior, 0.0001, 0.999)
+    total = sum(smoothed.values())
+    return (
+        {k: v / total for k, v in smoothed.items()},
+        {"city": climatology["city"], "sample_count": sample_count, "blend_alpha": round(alpha, 4)},
+    )
+
+
 def infer_weather(
     obs: dict[str, Any],
     *,
@@ -277,14 +321,34 @@ def infer_weather(
     risk_mode: str = "general",
     custom_thresholds: dict[str, float] | None = None,
     include_horizons: bool = True,
+    knowledge_base: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     custom_thresholds = custom_thresholds or {}
+    knowledge_base = knowledge_base or {}
+    base_priors = knowledge_base.get("base_priors", DEFAULT_BASE_PRIORS)
+    seasonal_multipliers = knowledge_base.get("seasonal_multipliers", DEFAULT_SEASONAL_MULTIPLIERS)
+    terrain_multipliers = knowledge_base.get("terrain_multipliers", DEFAULT_TERRAIN_MULTIPLIERS)
+    climate_zone_multipliers = knowledge_base.get("climate_zone_multipliers", DEFAULT_CLIMATE_ZONE_MULTIPLIERS)
+    monthly_raw = knowledge_base.get("monthly_multipliers", DEFAULT_MONTHLY_MULTIPLIERS)
+    monthly_multipliers = {int(k): v for k, v in monthly_raw.items()}
+    risk_mode_alert_weights = knowledge_base.get("risk_mode_alert_weights", DEFAULT_RISK_MODE_ALERT_WEIGHTS)
+    risk_mode_thresholds = knowledge_base.get("risk_mode_thresholds", DEFAULT_RISK_MODE_THRESHOLDS)
+
     quality = data_quality(obs)
     baseline = apply_historical_baseline(obs, infer_climate_zone(location), obs["month"])
 
-    scores = {condition: math.log(BASE_PRIORS[condition]) for condition in CONDITIONS}
+    scores = {condition: math.log(base_priors.get(condition, DEFAULT_BASE_PRIORS[condition])) for condition in CONDITIONS}
     feature_scores = _feature_contributions(obs, baseline)
-    scores, impact_trace, climate_zone = _apply_knowledge_multipliers(scores, obs, location, feature_scores)
+    scores, impact_trace, climate_zone = _apply_knowledge_multipliers(
+        scores,
+        obs,
+        location,
+        feature_scores,
+        seasonal_multipliers=seasonal_multipliers,
+        terrain_multipliers=terrain_multipliers,
+        climate_zone_multipliers=climate_zone_multipliers,
+        monthly_multipliers=monthly_multipliers,
+    )
     scores, rule_trace = _apply_rules(scores, obs)
 
     horizon_factor = _clamp(horizon_hours / 6, 0.5, 3.7)
@@ -294,6 +358,7 @@ def infer_weather(
     probabilities = _softmax(scores)
     probabilities = _dynamic_transition(probabilities, horizon_hours)
     probabilities = _calibrate(probabilities, quality["sensor_reliability"])
+    probabilities, climatology_meta = _climatology_smoothing(probabilities, location, obs["month"])
 
     rain_prob = probabilities["rain"] + 0.45 * probabilities["drizzle"] + 0.5 * probabilities["thunderstorm"]
     rain_prob = _clamp(rain_prob, 0, 1)
@@ -307,7 +372,7 @@ def infer_weather(
         label = key.replace("feature::", "").replace("rule::", "")
         key_factors.append({"factor": label, "impact": round(abs(val), 3), "direction": "increases" if val >= 0 else "decreases"})
 
-    horizons = _horizon_projection(obs, location, risk_mode, custom_thresholds) if include_horizons else []
+    horizons = _horizon_projection(obs, location, risk_mode, custom_thresholds, knowledge_base) if include_horizons else []
     scenarios = _scenario_simulation(rain_prob, expected_rainfall)
     events = _event_probabilities(probabilities, rain_prob, horizon_hours)
     bands = _intensity_bands(rain_prob, probabilities["thunderstorm"])
@@ -316,7 +381,7 @@ def infer_weather(
     explanation = (
         f"{predicted_condition} is most likely at {round(max(probabilities.values()) * 100)}% confidence weight. "
         f"Rain probability is {rain_prob:.2f} with expected rainfall {expected_rainfall} mm over {horizon_hours}h. "
-        f"Climate zone: {climate_zone}."
+        f"Climate zone: {climate_zone}. Climatology blend alpha: {climatology_meta['blend_alpha']}."
     )
 
     return {
@@ -331,6 +396,8 @@ def infer_weather(
             probabilities["windy"],
             risk_mode,
             custom_thresholds,
+            risk_mode_alert_weights=risk_mode_alert_weights,
+            risk_mode_thresholds=risk_mode_thresholds,
         ),
         "expert_recommendations": _recommendations(
             risk_mode,
@@ -348,6 +415,6 @@ def infer_weather(
         "event_probabilities": events,
         "intensity_bands": bands,
         "data_quality": quality,
+        "climatology_meta": climatology_meta,
         "explanation": explanation,
     }
-
