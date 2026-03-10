@@ -2,6 +2,69 @@ const apiBaseUrl = "http://127.0.0.1:8000";
 const apiKey = "dev-admin-key";
 const role = "admin";
 const indiaGeoJsonUrl = "https://cdn.jsdelivr.net/npm/world-geojson@3.4.0/countries/india.json";
+const HEATMAP_CITY_LIMIT = 40;
+const fallbackIndiaPolygons = [
+  [
+    [
+      [68.1, 23.9],
+      [68.7, 22.2],
+      [69.2, 20.6],
+      [69.9, 18.8],
+      [70.8, 17.2],
+      [71.8, 15.2],
+      [72.6, 13.5],
+      [73.3, 11.9],
+      [74.2, 10.1],
+      [75.2, 8.7],
+      [76.7, 8.2],
+      [78.4, 8.7],
+      [79.9, 10.1],
+      [81.1, 12.4],
+      [82.2, 15.1],
+      [83.3, 17.8],
+      [84.6, 19.9],
+      [86.0, 21.5],
+      [87.4, 22.4],
+      [88.7, 22.7],
+      [90.0, 23.5],
+      [91.6, 24.4],
+      [93.2, 25.7],
+      [94.2, 27.1],
+      [93.5, 28.0],
+      [92.0, 27.6],
+      [90.4, 26.8],
+      [88.5, 26.0],
+      [86.6, 26.3],
+      [84.7, 27.2],
+      [82.7, 28.7],
+      [80.6, 30.8],
+      [78.4, 32.8],
+      [76.1, 34.2],
+      [74.4, 35.2],
+      [73.3, 34.5],
+      [74.2, 33.0],
+      [76.2, 31.5],
+      [78.3, 30.2],
+      [80.3, 28.6],
+      [81.9, 27.2],
+      [81.5, 26.0],
+      [80.0, 24.7],
+      [78.5, 23.2],
+      [77.2, 21.4],
+      [76.0, 19.4],
+      [75.0, 17.1],
+      [74.0, 14.5],
+      [72.9, 12.2],
+      [72.0, 10.6],
+      [71.2, 12.9],
+      [70.6, 15.6],
+      [70.0, 18.4],
+      [69.3, 20.9],
+      [68.6, 22.8],
+      [68.1, 23.9],
+    ],
+  ],
+];
 
 const cities = [
   "New Delhi",
@@ -58,6 +121,7 @@ const SVG_WIDTH = 420;
 const SVG_HEIGHT = 520;
 let mapProjection = null;
 let lastForecast = null;
+let lastHeatmapItems = [];
 let hasIndiaBoundary = false;
 
 function headers() {
@@ -121,8 +185,18 @@ function setStatus(txt) {
   $("status").textContent = txt;
 }
 
+function clamp01(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function emptyState(message) {
+  return `<div class="empty-state">${message}</div>`;
+}
+
 function pct(v) {
-  return `${Math.round(Number(v) * 100)}%`;
+  return `${Math.round(clamp01(v) * 100)}%`;
 }
 
 function payload() {
@@ -224,7 +298,7 @@ function renderMain(data) {
 }
 
 function heatColor(prob) {
-  const p = Number(prob);
+  const p = clamp01(prob);
   if (p < 0.25) return "#45b36a";
   if (p < 0.45) return "#d2a500";
   if (p < 0.65) return "#d08b00";
@@ -232,43 +306,98 @@ function heatColor(prob) {
   return "#b00020";
 }
 
-function renderHeatmap(items) {
+function distanceBetweenCities(sourceCity, targetCity) {
+  const source = cityGeo[sourceCity];
+  const target = cityGeo[targetCity];
+  if (!source || !target) return Number.POSITIVE_INFINITY;
+  const dx = source.lon - target.lon;
+  const dy = source.lat - target.lat;
+  return dx * dx + dy * dy;
+}
+
+function buildHeatmapLocations(selectedCity) {
+  const uniqueCities = Array.from(new Set(cities.filter((city) => cityGeo[city])));
+  if (!uniqueCities.length) return [];
+  if (!selectedCity || !cityGeo[selectedCity]) return uniqueCities.slice(0, HEATMAP_CITY_LIMIT);
+  return [selectedCity, ...uniqueCities.filter((city) => city !== selectedCity).sort((a, b) => distanceBetweenCities(selectedCity, a) - distanceBetweenCities(selectedCity, b))].slice(
+    0,
+    HEATMAP_CITY_LIMIT
+  );
+}
+
+function renderHeatmap(items, selectedCity = $("location").value) {
+  if (!items.length) {
+    $("heatmap").innerHTML = '<div class="heatmap-empty">Run a forecast to populate the city rain heatmap.</div>';
+    return;
+  }
+
   $("heatmap").innerHTML = items
     .map(
       (item) => `
-      <div class="heat-cell" style="background:${heatColor(item.rain_probability)}">
+      <div class="heat-cell ${item.location === selectedCity ? "active" : ""}" style="background:${heatColor(item.rain_probability)}">
         ${item.location}
-        <small>${pct(item.rain_probability)} rain | ${item.predicted_condition}</small>
+        <small>${pct(item.rain_probability)} rain | ${item.predicted_condition} | ${item.alert_level}</small>
       </div>
     `
     )
     .join("");
 }
 
-async function runForecast() {
-  setStatus("Running forecast...");
-  try {
-    const data = await apiPost("/api/v1/infer", payload());
-    renderMain(data);
-    setStatus("Forecast ready.");
-  } catch (error) {
-    setStatus(`Forecast failed: ${error.message}`);
+async function loadForecastHeatmaps(basePayload) {
+  const selectedCity = basePayload.location || $("location").value;
+  const locations = buildHeatmapLocations(selectedCity);
+  if (!locations.length) {
+    lastHeatmapItems = [];
+    renderHeatmap([], selectedCity);
+    renderSpatialHeat([], selectedCity);
+    return { count: 0, items: [] };
   }
+
+  const data = await apiPost("/api/v1/infer/multi-location", {
+    locations,
+    observation: basePayload.observation,
+    horizon_hours: basePayload.horizon_hours,
+    risk_mode: basePayload.risk_mode,
+  });
+  const items = Array.isArray(data.items) ? data.items : [];
+  lastHeatmapItems = items;
+  renderHeatmap(items, selectedCity);
+  renderSpatialHeat(items, selectedCity);
+  return { count: items.length, items };
+}
+
+async function runForecast() {
+  const basePayload = payload();
+  setStatus(`Running forecast for ${basePayload.location}...`);
+  const [forecastResult, heatmapResult] = await Promise.allSettled([
+    apiPost("/api/v1/infer", basePayload),
+    loadForecastHeatmaps(basePayload),
+  ]);
+
+  if (forecastResult.status === "rejected") {
+    setStatus(`Forecast failed: ${forecastResult.reason.message}`);
+    return;
+  }
+
+  renderMain(forecastResult.value);
+
+  if (heatmapResult.status === "fulfilled") {
+    const label = heatmapResult.value.count === 1 ? "city" : "cities";
+    setStatus(`Forecast ready. Heatmaps updated for ${heatmapResult.value.count} ${label}.`);
+    return;
+  }
+
+  lastHeatmapItems = [];
+  renderHeatmap([], basePayload.location);
+  renderSpatialHeat([], basePayload.location);
+  setStatus(`Forecast ready, but heatmap update failed: ${heatmapResult.reason.message}`);
 }
 
 async function runHeatmap() {
-  setStatus("Running city heatmap...");
+  const basePayload = payload();
+  setStatus(`Running heatmaps for ${basePayload.location}...`);
   try {
-    const selectedCity = $("location").value;
-    const heatmapCities = [selectedCity, ...cities.filter((c) => c !== selectedCity)].slice(0, 10);
-    const data = await apiPost("/api/v1/infer/multi-location", {
-      locations: heatmapCities,
-      observation: payload().observation,
-      horizon_hours: Number($("horizon_hours").value),
-      risk_mode: $("risk_mode").value,
-    });
-    renderHeatmap(data.items);
-    renderSpatialHeat(data.items);
+    const data = await loadForecastHeatmaps(basePayload);
     setStatus(`Heatmap ready for ${data.count} cities.`);
   } catch (error) {
     setStatus(`Heatmap failed: ${error.message}`);
@@ -301,15 +430,15 @@ async function submitOutcome() {
   setStatus("Submitting outcome...");
   try {
     const data = await apiPost("/api/v1/outcome", {
-      location: $("location").value,
-      risk_mode: $("risk_mode").value,
-      horizon_hours: Number($("horizon_hours").value),
+      location: lastForecast.location,
+      risk_mode: lastForecast.risk_mode,
+      horizon_hours: Number(lastForecast.horizon_hours),
       predicted_rain_probability: Number(lastForecast.rain_probability),
       actual_condition: $("actual_condition").value,
       actual_rain_mm: Number($("actual_rain_mm").value),
     });
     $("calibration-view").innerHTML = `<div class="chip">Brier score recorded: ${data.brier_score}</div>`;
-    setStatus("Outcome submitted.");
+    setStatus(`Outcome submitted for ${lastForecast.location}.`);
   } catch (error) {
     setStatus(`Outcome submit failed: ${error.message}`);
   }
@@ -319,6 +448,11 @@ async function loadCalibration() {
   setStatus("Loading calibration...");
   try {
     const data = await apiGet(`/api/v1/calibration?location=${encodeURIComponent($("location").value)}`);
+    if (!data.overall.sample_count) {
+      $("calibration-view").innerHTML = emptyState(`No calibration samples recorded yet for ${$("location").value}.`);
+      setStatus("Calibration loaded.");
+      return;
+    }
     const bins = (data.reliability_bins || [])
       .map((b) => `<div class="chip">bin ${b.prob_bin / 10}-${(b.prob_bin + 1) / 10}: obs ${pct(b.observed_rain_frequency)}</div>`)
       .join("");
@@ -338,7 +472,12 @@ async function loadHistory() {
   setStatus("Loading history...");
   try {
     const data = await apiGet(`/api/v1/history?limit=20&location=${encodeURIComponent($("location").value)}`);
-    $("history-view").innerHTML = (data.items || [])
+    if (!(data.items || []).length) {
+      $("history-view").innerHTML = emptyState(`No forecast history found yet for ${$("location").value}.`);
+      setStatus("History loaded.");
+      return;
+    }
+    $("history-view").innerHTML = data.items
       .map((item) => `<div class="chip">${item.timestamp_utc.slice(0, 16)} | ${item.predicted_condition} | rain ${pct(item.rain_probability)} | ${item.alert_level}</div>`)
       .join("");
     setStatus("History loaded.");
@@ -351,10 +490,16 @@ async function loadAnalytics() {
   setStatus("Loading analytics...");
   try {
     const data = await apiGet(`/api/v1/history/analytics?location=${encodeURIComponent($("location").value)}`);
+    if (!data.summary.total_forecasts) {
+      $("analytics-view").innerHTML = emptyState(`No analytics are available yet for ${$("location").value}.`);
+      setStatus("Analytics loaded.");
+      return;
+    }
     $("analytics-view").innerHTML = `
       <div class="chip">Total forecasts: ${data.summary.total_forecasts}</div>
       <div class="chip">Avg rain prob: ${pct(data.summary.avg_rain_probability)}</div>
       <div class="chip">High alert ratio: ${pct(data.summary.high_alert_ratio)}</div>
+      ${(data.by_location || []).slice(0, 4).map((item) => `<div class="chip">${item.location}: ${item.count} runs | avg ${pct(item.avg_rain_probability)}</div>`).join("")}
       ${data.timeline
         .slice(0, 8)
         .map((d) => `<div class="chip">${d.date}: ${d.count} runs | severe ${d.severe_count}</div>`)
@@ -390,6 +535,11 @@ async function loadSubscriptions() {
   setStatus("Loading subscriptions...");
   try {
     const data = await apiGet("/api/v1/alerts/subscriptions?all=true");
+    if (!data.items.length) {
+      $("subscriptions-view").innerHTML = emptyState("No alert subscriptions created yet.");
+      setStatus("Subscriptions loaded.");
+      return;
+    }
     $("subscriptions-view").innerHTML = data.items
       .map(
         (item) =>
@@ -410,6 +560,11 @@ async function loadNotifications() {
   setStatus("Loading notifications...");
   try {
     const data = await apiGet("/api/v1/alerts/notifications?limit=30");
+    if (!data.items.length) {
+      $("notifications-view").innerHTML = emptyState("No notifications have been logged yet.");
+      setStatus("Notifications loaded.");
+      return;
+    }
     $("notifications-view").innerHTML = data.items
       .map((item) => `<div class="chip">${item.timestamp_utc.slice(0, 16)} | sub#${item.subscription_id} | ${item.delivery_status}</div>`)
       .join("");
@@ -429,6 +584,7 @@ async function loadDatasetStats() {
       <div class="chip">Climate zones: ${data.climate_zones}</div>
       <div class="chip">Years: ${data.year_range[0]}-${data.year_range[1]}</div>
       <div class="chip">Records per row: ${data.records_per_row}</div>
+      <div class="empty-state">${data.notes}</div>
     `;
     setStatus("Dataset stats loaded.");
   } catch (error) {
@@ -440,6 +596,11 @@ async function listKbVersions() {
   setStatus("Loading KB versions...");
   try {
     const data = await apiGet("/api/v1/knowledge-base/versions");
+    if (!data.items.length) {
+      $("kb-view").innerHTML = emptyState("No knowledge-base snapshots have been created yet.");
+      setStatus("KB versions loaded.");
+      return;
+    }
     $("kb-view").innerHTML = data.items
       .map(
         (item) =>
@@ -490,20 +651,87 @@ async function runBatchJob() {
       risk_mode: $("risk_mode").value,
       custom_thresholds: {},
     });
-    setStatus(`Batch job started: ${data.job_id}`);
-    await loadBatchJobs();
+    const detail = await pollBatchJob(data.job_id);
+    if (detail.status === "failed") {
+      setStatus(`Batch job ${detail.job_id.slice(0, 8)} failed: ${detail.error || "unknown error"}`);
+    } else if (detail.status === "completed") {
+      setStatus(`Batch job ${detail.job_id.slice(0, 8)} completed for ${detail.done} cities.`);
+    } else {
+      setStatus(`Batch job ${data.job_id} started.`);
+    }
+    await loadBatchJobs(data.job_id);
   } catch (error) {
     setStatus(`Batch job failed: ${error.message}`);
   }
 }
 
-async function loadBatchJobs() {
+function renderBatchJobDetail(job) {
+  if (!job) return "";
+  const items = job.items || [];
+  const meta = [
+    `<div class="chip">Job ${job.job_id.slice(0, 8)}</div>`,
+    `<div class="chip">Status: ${job.status}</div>`,
+    `<div class="chip">Progress: ${job.done}/${job.total}</div>`,
+  ];
+  if (job.completed_utc) meta.push(`<div class="chip">Completed: ${job.completed_utc.slice(0, 16)}</div>`);
+  if (job.error) meta.push(`<div class="chip">Error: ${job.error}</div>`);
+
+  const resultHtml = items.length
+    ? items
+        .slice(0, 12)
+        .map(
+          (item) =>
+            `<div class="chip">${item.location} | ${item.predicted_condition} | rain ${pct(item.rain_probability)} | ${item.alert_level}</div>`
+        )
+        .join("")
+    : emptyState("No per-city results are available for this batch job yet.");
+
+  return `
+    <div class="batch-job-card">
+      <div class="chips">${meta.join("")}</div>
+      <div class="stack batch-results">${resultHtml}</div>
+    </div>
+  `;
+}
+
+async function pollBatchJob(jobId, maxAttempts = 80, delayMs = 250) {
+  let detail = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    detail = await apiGet(`/api/v1/jobs/forecast-batch/${jobId}`);
+    $("batch-view").innerHTML = renderBatchJobDetail(detail);
+    if (detail.status === "completed" || detail.status === "failed") {
+      return detail;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return detail || (await apiGet(`/api/v1/jobs/forecast-batch/${jobId}`));
+}
+
+async function loadBatchJobs(focusJobId = null) {
   setStatus("Loading batch jobs...");
   try {
     const data = await apiGet("/api/v1/jobs/forecast-batch?limit=12");
-    $("batch-view").innerHTML = data.items
-      .map((job) => `<div class="chip">${job.job_id.slice(0, 8)} | ${job.status} | ${job.done}/${job.total}</div>`)
+    if (!data.items.length) {
+      $("batch-view").innerHTML = emptyState("No batch jobs have been started yet.");
+      setStatus("Batch jobs loaded.");
+      return;
+    }
+    let detail = null;
+    const selectedJobId = focusJobId || data.items[0]?.job_id;
+    if (selectedJobId) {
+      try {
+        detail = await apiGet(`/api/v1/jobs/forecast-batch/${selectedJobId}`);
+      } catch (error) {
+        detail = null;
+      }
+    }
+    const listHtml = data.items
+      .map((job) => {
+        const errorText = job.error ? ` | error ${job.error}` : "";
+        return `<div class="chip">${job.job_id.slice(0, 8)} | ${job.status} | ${job.done}/${job.total}${errorText}</div>`;
+      })
       .join("");
+    $("batch-view").innerHTML = `<div class="stack">${listHtml}</div>${renderBatchJobDetail(detail)}`;
     setStatus("Batch jobs loaded.");
   } catch (error) {
     setStatus(`Batch jobs failed: ${error.message}`);
@@ -553,6 +781,20 @@ function computeProjection(polygons) {
   return { minLon, maxLon, minLat, maxLat, scale, xPad, yPad };
 }
 
+function renderIndiaBoundary(polygons) {
+  mapProjection = computeProjection(polygons);
+  const paths = polygons
+    .map((polygon) => {
+      const d = polygon.map((ring) => ringToPath(ring)).join(" ");
+      return `<path class="india-shape" d="${d}" />`;
+    })
+    .join("");
+  hasIndiaBoundary = true;
+  $("india-geo-layer").innerHTML = paths;
+  $("india-heat-geo-layer").innerHTML = paths;
+  $("india-heat-clip-paths").innerHTML = paths;
+}
+
 function ringToPath(ring) {
   if (!ring.length) return "";
   const first = projectLonLat(ring[0][0], ring[0][1]);
@@ -572,25 +814,12 @@ async function loadIndiaBoundary() {
     const feature = geo?.type === "FeatureCollection" ? geo.features?.[0] : geo;
     const polygons = ringsFromGeometry(feature?.geometry);
     if (!polygons.length) throw new Error("boundary data empty");
-
-    mapProjection = computeProjection(polygons);
-    const paths = polygons
-      .map((polygon) => {
-        const d = polygon.map((ring) => ringToPath(ring)).join(" ");
-        return `<path class="india-shape" d="${d}" />`;
-      })
-      .join("");
-    hasIndiaBoundary = true;
-    $("india-geo-layer").innerHTML = paths;
-    $("india-heat-geo-layer").innerHTML = paths;
-    $("india-heat-clip-paths").innerHTML = paths;
+    renderIndiaBoundary(polygons);
   } catch (error) {
-    hasIndiaBoundary = false;
-    ensureFallbackProjection();
-    setFullClipPath();
-    $("india-geo-layer").innerHTML = "";
-    $("india-heat-geo-layer").innerHTML = "";
-    $("map-heat-info").textContent = `Boundary load failed: ${error.message}`;
+    renderIndiaBoundary(fallbackIndiaPolygons);
+  }
+  if (lastHeatmapItems.length) {
+    renderSpatialHeat(lastHeatmapItems);
   }
 }
 
@@ -643,7 +872,7 @@ function lerp(a, b, t) {
 }
 
 function heatScaleRgb(prob) {
-  const p = Math.max(0, Math.min(1, Number(prob)));
+  const p = clamp01(prob);
   if (p <= 0.5) {
     const t = p / 0.5;
     return { r: lerp(34, 255, t), g: lerp(197, 214, t), b: lerp(94, 10, t) };
@@ -656,9 +885,12 @@ function rgbToCss(rgb, alpha) {
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
 }
 
-function renderSpatialHeat(items) {
+function renderSpatialHeat(items, selectedCity = $("location").value) {
   ensureFallbackProjection();
-  if (!mapProjection) return;
+  if (!mapProjection) {
+    $("map-heat-info").textContent = "Heatmap projection is unavailable.";
+    return;
+  }
   const surfaceLayer = $("india-heat-surface");
   const blurLayer = $("india-heat-spots");
   const coreLayer = $("india-heat-spots-core");
@@ -666,12 +898,15 @@ function renderSpatialHeat(items) {
   blurLayer.innerHTML = "";
   coreLayer.innerHTML = "";
 
-  const validItems = items.filter((item) => cityGeo[item.location]);
-  if (!validItems.length) return;
+  const validItems = items.filter((item) => cityGeo[item.location] && Number.isFinite(Number(item.rain_probability)));
+  if (!validItems.length) {
+    $("map-heat-info").textContent = "Run a forecast to populate the India spatial heatmap.";
+    return;
+  }
 
   const projected = validItems.map((item) => {
     const p = projectLonLat(cityGeo[item.location].lon, cityGeo[item.location].lat);
-    return { x: p.x, y: p.y, w: Number(item.rain_probability) };
+    return { x: p.x, y: p.y, w: clamp01(item.rain_probability) };
   });
 
   if (!hasIndiaBoundary) {
@@ -681,33 +916,35 @@ function renderSpatialHeat(items) {
   const sigma = 52;
   const sigma2 = sigma * sigma;
   const grid = 4;
+  const densityReference = 0.9;
   const cells = [];
-  let maxVal = 0;
 
   for (let y = 0; y < SVG_HEIGHT; y += grid) {
     for (let x = 0; x < SVG_WIDTH; x += grid) {
       const cx = x + grid / 2;
       const cy = y + grid / 2;
-      let val = 0;
+      let weightedProb = 0;
+      let weightTotal = 0;
       for (const point of projected) {
         const dx = cx - point.x;
         const dy = cy - point.y;
         const d2 = dx * dx + dy * dy;
-        val += point.w * Math.exp(-d2 / (2 * sigma2));
+        const influence = Math.exp(-d2 / (2 * sigma2));
+        weightedProb += point.w * influence;
+        weightTotal += influence;
       }
-      maxVal = Math.max(maxVal, val);
-      cells.push({ x, y, v: val });
+      const localProbability = weightTotal > 0 ? weightedProb / weightTotal : 0;
+      const density = Math.min(1, weightTotal / densityReference);
+      cells.push({ x, y, v: localProbability * density });
     }
   }
 
-  if (maxVal <= 0) return;
-
   surfaceLayer.innerHTML = cells
     .map((cell) => {
-      const norm = cell.v / maxVal;
-      if (norm < 0.03) return "";
+      const norm = clamp01(cell.v);
+      if (norm < 0.08) return "";
       const rgb = heatScaleRgb(norm);
-      const alpha = 0.08 + Math.pow(norm, 0.9) * 0.72;
+      const alpha = 0.04 + Math.pow(norm, 1.2) * 0.76;
       return `<rect x="${cell.x}" y="${cell.y}" width="${grid}" height="${grid}" fill="${rgbToCss(rgb, alpha)}"></rect>`;
     })
     .join("");
@@ -715,7 +952,7 @@ function renderSpatialHeat(items) {
   blurLayer.innerHTML = validItems
     .map((item) => {
       const p = projectLonLat(cityGeo[item.location].lon, cityGeo[item.location].lat);
-      const pr = Number(item.rain_probability);
+      const pr = clamp01(item.rain_probability);
       const rgb = heatScaleRgb(pr);
       const radius = 18 + pr * 26;
       return `<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${radius.toFixed(2)}" fill="${rgbToCss(rgb, 0.5)}"></circle>`;
@@ -725,12 +962,15 @@ function renderSpatialHeat(items) {
   coreLayer.innerHTML = validItems
     .map((item) => {
       const p = projectLonLat(cityGeo[item.location].lon, cityGeo[item.location].lat);
-      const pr = Number(item.rain_probability);
+      const pr = clamp01(item.rain_probability);
       const rgb = heatScaleRgb(pr);
       const radius = 3.5 + pr * 6.2;
       return `<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${radius.toFixed(2)}" fill="${rgbToCss(rgb, 0.95)}"></circle>`;
     })
     .join("");
+
+  const peak = validItems.reduce((best, item) => (clamp01(item.rain_probability) > clamp01(best.rain_probability) ? item : best), validItems[0]);
+  $("map-heat-info").textContent = `Spatial heatmap for ${selectedCity}. Peak rain signal: ${peak.location} ${pct(peak.rain_probability)}.`;
 }
 
 function renderRestoreButtons() {
@@ -760,6 +1000,7 @@ function handlePanelAction(action, panelId) {
 }
 
 function openMapSidebar() {
+  renderMapMarkers();
   $("map-sidebar").classList.add("open");
   $("map-backdrop").classList.add("open");
   $("map-sidebar").setAttribute("aria-hidden", "false");
@@ -773,6 +1014,8 @@ function closeMapSidebar() {
 
 initCities();
 setFullClipPath();
+renderHeatmap([]);
+renderSpatialHeat([]);
 loadIndiaBoundary().then(renderMapMarkers);
 
 $("run").addEventListener("click", runForecast);
@@ -830,7 +1073,13 @@ $("kb-view").addEventListener("click", async (event) => {
   await activateKbVersion(versionId);
 });
 
-$("location").addEventListener("change", renderMapMarkers);
+$("location").addEventListener("change", () => {
+  renderMapMarkers();
+  if (lastHeatmapItems.length) {
+    renderHeatmap(lastHeatmapItems, $("location").value);
+    renderSpatialHeat(lastHeatmapItems, $("location").value);
+  }
+});
 $("map-toggle").addEventListener("click", openMapSidebar);
 $("map-close").addEventListener("click", closeMapSidebar);
 $("map-backdrop").addEventListener("click", closeMapSidebar);
@@ -855,7 +1104,7 @@ $("india-map").addEventListener("keydown", async (event) => {
 
 $("theme-toggle").addEventListener("click", () => {
   document.body.classList.toggle("dark");
-  $("theme-toggle").textContent = document.body.classList.contains("dark") ? "Light Mode" : "Dark Mode";
+  $("theme-toggle").textContent = document.body.classList.contains("dark") ? "Day Theme" : "Storm Theme";
 });
 
 document.addEventListener("keydown", (event) => {

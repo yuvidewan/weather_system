@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
@@ -15,125 +15,250 @@
   <body>
     <main class="app">
       <header class="hero card">
-        <h1>SkyCast Expert Console</h1>
-        <p>Full probabilistic weather intelligence with scenarios, event windows, city heatmap, and backend ops controls.</p>
-        <div class="hero-actions">
-          <button id="theme-toggle" class="theme-toggle" type="button">Dark Mode</button>
-          <button id="map-toggle" class="theme-toggle ghost" type="button">Open India Map</button>
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <span class="eyebrow">Weather Forecast Expert System</span>
+            <h1>SkyCast Expert Console</h1>
+            <p>
+              India-focused probabilistic weather intelligence with explainable reasoning, live weather blending, spatial rain
+              surfaces, verification loops, and operational forecast controls.
+            </p>
+            <div class="hero-tags">
+              <span class="hero-tag">Explainable forecast reasoning</span>
+              <span class="hero-tag">Rain-risk heatmaps</span>
+              <span class="hero-tag">Live signal ingestion</span>
+              <span class="hero-tag">Calibration + ops workflow</span>
+            </div>
+          </div>
+          <div class="hero-aside">
+            <div class="hero-stat-grid">
+              <article class="hero-stat">
+                <span class="hero-stat-label">Forecast Lens</span>
+                <strong>City-scale expert intelligence</strong>
+                <small>Condition probabilities, event timing, rainfall outlook, and alert severity.</small>
+              </article>
+              <article class="hero-stat">
+                <span class="hero-stat-label">Spatial Layer</span>
+                <strong>India rain signal mapping</strong>
+                <small>Interactive city selection, comparison heatmaps, and smoothed nationwide risk surfaces.</small>
+              </article>
+              <article class="hero-stat">
+                <span class="hero-stat-label">Operational Depth</span>
+                <strong>Verification and KB controls</strong>
+                <small>Outcome reporting, calibration, subscriptions, knowledge snapshots, and batch jobs.</small>
+              </article>
+            </div>
+            <div class="hero-actions">
+              <button id="theme-toggle" class="theme-toggle" type="button">Storm Theme</button>
+              <button id="map-toggle" class="theme-toggle ghost" type="button">Open Interactive Map</button>
+            </div>
+          </div>
         </div>
       </header>
 
       <section class="controls card">
-        <div class="grid">
-          <label>City
-            <select id="location"></select>
-          </label>
-          <label>Risk Mode
-            <select id="risk_mode">
-              <option value="general">General</option>
-              <option value="travel">Travel</option>
-              <option value="events">Events</option>
-              <option value="agriculture">Agriculture</option>
-              <option value="logistics">Logistics</option>
-            </select>
-          </label>
-          <label>Horizon
-            <select id="horizon_hours">
-              <option value="1">1h</option>
-              <option value="3">3h</option>
-              <option value="6" selected>6h</option>
-              <option value="12">12h</option>
-              <option value="24">24h</option>
-            </select>
-          </label>
-          <label>Live Provider
-            <select id="live_provider">
-              <option value="auto">auto</option>
-              <option value="open-meteo">open-meteo</option>
-              <option value="wttr">wttr</option>
-            </select>
-          </label>
-          <label>Temperature (C)
-            <input id="temperature_c" type="number" value="31" />
-          </label>
-          <label>Humidity (%)
-            <input id="humidity_pct" type="number" value="72" />
-          </label>
-          <label>Cloud Cover (%)
-            <input id="cloud_cover_pct" type="number" value="78" />
-          </label>
-          <label>Wind (kph)
-            <input id="wind_kph" type="number" value="23" />
-          </label>
-          <label>Pressure Trend
-            <select id="pressure_trend">
-              <option value="steady">steady</option>
-              <option value="falling">falling</option>
-              <option value="rising">rising</option>
-            </select>
-          </label>
+        <div class="controls-shell">
+          <div class="controls-intro">
+            <span class="eyebrow">Forecast Command Deck</span>
+            <h2>Shape the atmosphere, then interrogate it.</h2>
+            <p>
+              Start with a city and observation profile, blend in live weather if needed, and move from expert forecast runs to
+              batch evaluation and spatial insight without leaving the page.
+            </p>
+            <div class="control-points">
+              <div class="control-point">
+                <strong>Live inputs</strong>
+                <span>Refresh the observation profile from supported live providers before forecasting.</span>
+              </div>
+              <div class="control-point">
+                <strong>Risk modes</strong>
+                <span>Switch between general, travel, events, agriculture, and logistics framing.</span>
+              </div>
+              <div class="control-point">
+                <strong>Spatial awareness</strong>
+                <span>Use nearby-city heatmaps and the India map to see where rain pressure is clustering.</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="controls-main">
+            <div class="grid">
+              <label>City
+                <select id="location"></select>
+              </label>
+              <label>Risk Mode
+                <select id="risk_mode">
+                  <option value="general">General</option>
+                  <option value="travel">Travel</option>
+                  <option value="events">Events</option>
+                  <option value="agriculture">Agriculture</option>
+                  <option value="logistics">Logistics</option>
+                </select>
+              </label>
+              <label>Horizon
+                <select id="horizon_hours">
+                  <option value="1">1h</option>
+                  <option value="3">3h</option>
+                  <option value="6" selected>6h</option>
+                  <option value="12">12h</option>
+                  <option value="24">24h</option>
+                </select>
+              </label>
+              <label>Live Provider
+                <select id="live_provider">
+                  <option value="auto">auto</option>
+                  <option value="open-meteo">open-meteo</option>
+                  <option value="wttr">wttr</option>
+                </select>
+              </label>
+              <label>Pressure Trend
+                <select id="pressure_trend">
+                  <option value="steady">steady</option>
+                  <option value="falling">falling</option>
+                  <option value="rising">rising</option>
+                </select>
+              </label>
+              <label>Temperature (C)
+                <input id="temperature_c" type="number" value="31" />
+              </label>
+              <label>Humidity (%)
+                <input id="humidity_pct" type="number" value="72" />
+              </label>
+              <label>Cloud Cover (%)
+                <input id="cloud_cover_pct" type="number" value="78" />
+              </label>
+              <label>Wind (kph)
+                <input id="wind_kph" type="number" value="23" />
+              </label>
+            </div>
+
+            <div class="action-row">
+              <button id="run" type="button">Run Expert Forecast</button>
+              <button id="run-multi" class="secondary" type="button">Refresh Heatmaps</button>
+              <button id="fetch-live" class="ghost" type="button">Blend Live Weather</button>
+              <button id="run-batch" class="ghost" type="button">Start Batch Forecast</button>
+            </div>
+            <div id="panel-restores" class="panel-restores"></div>
+            <div id="status" class="status">Ready.</div>
+          </div>
         </div>
-        <div class="action-row">
-          <button id="run">Run Forecast</button>
-          <button id="run-multi" class="secondary">Run City Heatmap</button>
-          <button id="fetch-live" class="ghost">Use Live Weather</button>
-          <button id="run-batch" class="ghost">Start Batch Job</button>
-        </div>
-        <div id="panel-restores" class="panel-restores"></div>
-        <div id="status" class="status">Ready.</div>
       </section>
 
       <section class="card summary">
+        <div class="summary-head">
+          <div>
+            <span class="eyebrow">Forecast Brief</span>
+            <div class="summary-note">Live expert readout from the active weather profile.</div>
+          </div>
+        </div>
         <div id="headline" class="headline">No forecast yet.</div>
         <div id="quick" class="quick"></div>
       </section>
 
-      <section class="panels">
-        <article class="card panel">
-          <h2>Condition Probabilities</h2>
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Forecast Intelligence</span>
+          <h2>Situation awareness, uncertainty, and reasoning trace</h2>
+        </div>
+        <p>Use the forecast output to inspect confidence, rainfall character, and why the expert system arrived there.</p>
+      </div>
+
+      <section class="panels forecast-panels">
+        <article class="card panel panel-span-6 panel-spotlight">
+          <div class="panel-title">
+            <span class="panel-label">Primary View</span>
+            <h2>Condition Probabilities</h2>
+          </div>
           <div id="probability-bars"></div>
         </article>
-        <article class="card panel">
-          <h2>Rain Intensity Bands</h2>
+
+        <article class="card panel panel-span-3">
+          <div class="panel-title">
+            <span class="panel-label">Rain Structure</span>
+            <h2>Rain Intensity Bands</h2>
+          </div>
           <div id="bands" class="chips"></div>
         </article>
-        <article class="card panel">
-          <h2>Scenario Simulation</h2>
-          <div id="scenarios" class="stack"></div>
-        </article>
-        <article class="card panel">
-          <h2>Event Probabilities</h2>
+
+        <article class="card panel panel-span-3">
+          <div class="panel-title">
+            <span class="panel-label">Timing Signals</span>
+            <h2>Event Probabilities</h2>
+          </div>
           <div id="events" class="chips"></div>
         </article>
-        <article class="card panel">
-          <h2>Multi-Horizon Forecast</h2>
+
+        <article class="card panel panel-span-4">
+          <div class="panel-title">
+            <span class="panel-label">Scenario Space</span>
+            <h2>Scenario Simulation</h2>
+          </div>
+          <div id="scenarios" class="stack"></div>
+        </article>
+
+        <article class="card panel panel-span-4">
+          <div class="panel-title">
+            <span class="panel-label">Progression</span>
+            <h2>Multi-Horizon Forecast</h2>
+          </div>
           <div id="horizons" class="chips"></div>
         </article>
-        <article class="card panel">
-          <h2>Data Quality</h2>
+
+        <article class="card panel panel-span-4">
+          <div class="panel-title">
+            <span class="panel-label">Reliability</span>
+            <h2>Data Quality</h2>
+          </div>
           <div id="quality" class="stack"></div>
         </article>
-        <article class="card panel">
-          <h2>Recommendations</h2>
+
+        <article class="card panel panel-span-4">
+          <div class="panel-title">
+            <span class="panel-label">Decision Support</span>
+            <h2>Recommendations</h2>
+          </div>
           <ul id="recommendations"></ul>
         </article>
-        <article class="card panel">
-          <h2>Counterfactuals</h2>
+
+        <article class="card panel panel-span-4">
+          <div class="panel-title">
+            <span class="panel-label">Sensitivity</span>
+            <h2>Counterfactuals</h2>
+          </div>
           <ul id="counterfactuals"></ul>
         </article>
-        <article class="card panel">
-          <h2>Rule Trace</h2>
+
+        <article class="card panel panel-span-4">
+          <div class="panel-title">
+            <span class="panel-label">Expert Rules</span>
+            <h2>Rule Trace</h2>
+          </div>
           <ul id="rule-trace"></ul>
         </article>
-        <article class="card panel">
-          <h2>Feature Attribution</h2>
+
+        <article class="card panel panel-span-12">
+          <div class="panel-title">
+            <span class="panel-label">Contribution Analysis</span>
+            <h2>Feature Attribution</h2>
+          </div>
           <ul id="attribution"></ul>
         </article>
       </section>
 
-      <section class="panels">
-        <article class="card panel">
-          <h2>Outcome Verification</h2>
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Operations + Validation</span>
+          <h2>Outcome tracking, subscriptions, knowledge controls, and batch execution</h2>
+        </div>
+        <p>Everything you need to validate the model, operate alerts, and manage the expert system runtime.</p>
+      </div>
+
+      <section class="panels ops-panels">
+        <article class="card panel panel-span-4">
+          <div class="panel-title">
+            <span class="panel-label">Verification</span>
+            <h2>Outcome Verification</h2>
+          </div>
           <div class="grid tight-grid">
             <label>Actual Condition
               <select id="actual_condition">
@@ -151,24 +276,30 @@
             </label>
           </div>
           <div class="action-row">
-            <button id="submit-outcome" class="secondary">Submit Outcome</button>
-            <button id="load-calibration" class="ghost">Load Calibration</button>
+            <button id="submit-outcome" class="secondary" type="button">Submit Outcome</button>
+            <button id="load-calibration" class="ghost" type="button">Load Calibration</button>
           </div>
           <div id="calibration-view" class="stack"></div>
         </article>
 
-        <article class="card panel">
-          <h2>History Analytics</h2>
+        <article class="card panel panel-span-4">
+          <div class="panel-title">
+            <span class="panel-label">Forecast Archive</span>
+            <h2>History Analytics</h2>
+          </div>
           <div class="action-row">
-            <button id="load-history" class="secondary">Load History</button>
-            <button id="load-analytics" class="ghost">Load Analytics</button>
+            <button id="load-history" class="secondary" type="button">Load History</button>
+            <button id="load-analytics" class="ghost" type="button">Load Analytics</button>
           </div>
           <div id="history-view" class="stack"></div>
           <div id="analytics-view" class="stack"></div>
         </article>
 
-        <article class="card panel">
-          <h2>Alert Subscriptions</h2>
+        <article class="card panel panel-span-4">
+          <div class="panel-title">
+            <span class="panel-label">Alerting</span>
+            <h2>Alert Subscriptions</h2>
+          </div>
           <div class="grid tight-grid">
             <label>Name
               <input id="sub_name" type="text" value="High Rain Alert" />
@@ -196,16 +327,19 @@
             </label>
           </div>
           <div class="action-row">
-            <button id="create-subscription" class="secondary">Create Subscription</button>
-            <button id="load-subscriptions" class="ghost">Load Subscriptions</button>
-            <button id="load-notifications" class="ghost">Load Notifications</button>
+            <button id="create-subscription" class="secondary" type="button">Create Subscription</button>
+            <button id="load-subscriptions" class="ghost" type="button">Load Subscriptions</button>
+            <button id="load-notifications" class="ghost" type="button">Load Notifications</button>
           </div>
           <div id="subscriptions-view" class="stack"></div>
           <div id="notifications-view" class="stack"></div>
         </article>
 
-        <article class="card panel">
-          <h2>Dataset + Knowledge Base Ops</h2>
+        <article class="card panel panel-span-6">
+          <div class="panel-title">
+            <span class="panel-label">Model Operations</span>
+            <h2>Dataset + Knowledge Base Ops</h2>
+          </div>
           <div class="grid tight-grid">
             <label>KB Version Name
               <input id="kb_version_name" type="text" value="ops-snapshot" />
@@ -215,74 +349,96 @@
             </label>
           </div>
           <div class="action-row">
-            <button id="dataset-stats" class="secondary">Dataset Stats</button>
-            <button id="list-kb-versions" class="ghost">KB Versions</button>
-            <button id="create-kb-version" class="ghost">Create KB Snapshot</button>
+            <button id="dataset-stats" class="secondary" type="button">Dataset Stats</button>
+            <button id="list-kb-versions" class="ghost" type="button">KB Versions</button>
+            <button id="create-kb-version" class="ghost" type="button">Create KB Snapshot</button>
           </div>
           <div id="dataset-view" class="stack"></div>
           <div id="kb-view" class="stack"></div>
         </article>
 
-        <article class="card panel">
-          <h2>Batch Jobs</h2>
-          <p class="muted">Runs forecasts asynchronously across all loaded cities using current observation profile.</p>
+        <article class="card panel panel-span-6">
+          <div class="panel-title">
+            <span class="panel-label">Asynchronous Runs</span>
+            <h2>Batch Jobs</h2>
+          </div>
+          <p class="muted">Launch forecasts across the loaded city set and inspect job progress without blocking the main workflow.</p>
           <div class="action-row">
-            <button id="list-batch-jobs" class="secondary">List Jobs</button>
+            <button id="list-batch-jobs" class="secondary" type="button">List Jobs</button>
           </div>
           <div id="batch-view" class="stack"></div>
         </article>
       </section>
 
-      <section id="city-heat-section" class="card panel heat-panel">
-        <div class="panel-head">
-          <h2>City Rain Heatmap</h2>
-          <div class="panel-tools">
-            <button class="mini panel-action" data-panel-action="minimize" data-panel-id="city-heat-section" type="button">_</button>
-            <button class="mini panel-action" data-panel-action="close" data-panel-id="city-heat-section" type="button">x</button>
-          </div>
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Spatial Forecasting</span>
+          <h2>Where the rain signal is strengthening</h2>
         </div>
-        <div class="panel-content">
-          <p class="muted">Probability grid from multi-location endpoint.</p>
-          <div id="heatmap" class="heatmap"></div>
-        </div>
-      </section>
+        <p>Track city comparisons and India-wide rain concentration from the same forecast state.</p>
+      </div>
 
-      <section id="spatial-heat-section" class="card panel heat-panel">
-        <div class="panel-head">
-          <h2>India Spatial Heatmap</h2>
-          <div class="panel-tools">
-            <button class="mini panel-action" data-panel-action="minimize" data-panel-id="spatial-heat-section" type="button">_</button>
-            <button class="mini panel-action" data-panel-action="close" data-panel-id="spatial-heat-section" type="button">x</button>
+      <section class="panels heat-grid">
+        <section id="city-heat-section" class="card panel heat-panel panel-span-6">
+          <div class="panel-head">
+            <div class="panel-title">
+              <span class="panel-label">Comparison Grid</span>
+              <h2>City Rain Heatmap</h2>
+            </div>
+            <div class="panel-tools">
+              <button class="mini panel-action" data-panel-action="minimize" data-panel-id="city-heat-section" type="button">-</button>
+              <button class="mini panel-action" data-panel-action="close" data-panel-id="city-heat-section" type="button">x</button>
+            </div>
           </div>
-        </div>
-        <div class="panel-content">
-          <p class="muted">Green low risk, yellow medium, red high rain concentration.</p>
-          <div class="india-heatmap-map" aria-label="India heatmap map">
-            <svg viewBox="0 0 420 520" aria-hidden="true">
-              <defs>
-                <filter id="heat-blur" x="-30%" y="-30%" width="160%" height="160%">
-                  <feGaussianBlur stdDeviation="18" />
-                </filter>
-                <clipPath id="india-clip">
-                  <g id="india-heat-clip-paths"></g>
-                </clipPath>
-              </defs>
-              <g id="india-heat-surface" clip-path="url(#india-clip)"></g>
-              <g id="india-heat-geo-layer"></g>
-              <g id="india-heat-spots" filter="url(#heat-blur)" clip-path="url(#india-clip)"></g>
-              <g id="india-heat-spots-core" clip-path="url(#india-clip)"></g>
-            </svg>
+          <div class="panel-content">
+            <p class="muted">Auto-updates on forecast using the selected city plus nearby comparison cities.</p>
+            <div id="heatmap" class="heatmap"></div>
           </div>
-        </div>
+        </section>
+
+        <section id="spatial-heat-section" class="card panel heat-panel panel-span-6">
+          <div class="panel-head">
+            <div class="panel-title">
+              <span class="panel-label">Nationwide Surface</span>
+              <h2>India Spatial Heatmap</h2>
+            </div>
+            <div class="panel-tools">
+              <button class="mini panel-action" data-panel-action="minimize" data-panel-id="spatial-heat-section" type="button">-</button>
+              <button class="mini panel-action" data-panel-action="close" data-panel-id="spatial-heat-section" type="button">x</button>
+            </div>
+          </div>
+          <div class="panel-content">
+            <p class="muted">Smoothed India-wide rain probability surface from the active multi-city forecast set.</p>
+            <div class="india-heatmap-map" aria-label="India heatmap map">
+              <svg viewBox="0 0 420 520" aria-hidden="true">
+                <defs>
+                  <filter id="heat-blur" x="-30%" y="-30%" width="160%" height="160%">
+                    <feGaussianBlur stdDeviation="18" />
+                  </filter>
+                  <clipPath id="india-clip">
+                    <g id="india-heat-clip-paths"></g>
+                  </clipPath>
+                </defs>
+                <g id="india-heat-surface" clip-path="url(#india-clip)"></g>
+                <g id="india-heat-geo-layer"></g>
+                <g id="india-heat-spots" filter="url(#heat-blur)" clip-path="url(#india-clip)"></g>
+                <g id="india-heat-spots-core" clip-path="url(#india-clip)"></g>
+              </svg>
+            </div>
+          </div>
+        </section>
       </section>
 
       <div id="map-backdrop" class="map-backdrop"></div>
       <aside id="map-sidebar" class="map-sidebar" aria-hidden="true">
         <div class="map-sidebar-head">
-          <h2>India Interactive Forecast Map</h2>
+          <div>
+            <span class="eyebrow">Interactive Map</span>
+            <h2>India Forecast Map</h2>
+          </div>
           <button id="map-close" class="theme-toggle ghost" type="button">Close</button>
         </div>
-        <p class="muted">Click anywhere to use nearest city and run forecast with current conditions.</p>
+        <p class="muted">Click anywhere on the map to select the nearest city and immediately run a forecast with the current profile.</p>
         <div id="india-map" class="india-map" role="button" tabindex="0" aria-label="Interactive map of India">
           <svg viewBox="0 0 420 520" aria-hidden="true">
             <g id="india-geo-layer"></g>
@@ -290,7 +446,7 @@
           <div id="india-map-markers" class="india-map-markers"></div>
         </div>
         <div id="map-selected" class="map-selected">Selected city: New Delhi</div>
-        <div id="map-heat-info" class="map-selected">Interactive map only: heatmap renders in bottom India Spatial Heatmap panel.</div>
+        <div id="map-heat-info" class="map-selected">Run a forecast to populate the India spatial heatmap.</div>
       </aside>
     </main>
     <script src="./app.js"></script>
