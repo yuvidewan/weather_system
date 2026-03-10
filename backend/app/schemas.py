@@ -124,7 +124,7 @@ class InferenceResponse(BaseModel):
 
 
 class MultiLocationRequest(BaseModel):
-    locations: list[str] = Field(..., min_length=1, max_length=10)
+    locations: list[str] = Field(..., min_length=1, max_length=40)
     observation: WeatherObservation
     horizon_hours: int = Field(6, ge=1, le=24)
     risk_mode: RiskMode = "general"

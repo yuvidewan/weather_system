@@ -9,6 +9,8 @@ from .data_intelligence import apply_historical_baseline, data_quality
 from .knowledge_base import (
     BASE_PRIORS as DEFAULT_BASE_PRIORS,
     CLIMATE_ZONE_MULTIPLIERS as DEFAULT_CLIMATE_ZONE_MULTIPLIERS,
+    CLIMATE_ZONE_BY_LOCATION_HINT as DEFAULT_LOCATION_CLIMATE_HINTS,
+    EXPERT_RULES as DEFAULT_EXPERT_RULES,
     MONTHLY_MULTIPLIERS as DEFAULT_MONTHLY_MULTIPLIERS,
     RISK_MODE_ALERT_WEIGHTS as DEFAULT_RISK_MODE_ALERT_WEIGHTS,
     RISK_MODE_THRESHOLDS as DEFAULT_RISK_MODE_THRESHOLDS,
@@ -105,9 +107,10 @@ def _apply_knowledge_multipliers(
     seasonal_multipliers: dict[str, dict[str, float]],
     terrain_multipliers: dict[str, dict[str, float]],
     climate_zone_multipliers: dict[str, dict[str, float]],
+    location_climate_hints: dict[str, str],
     monthly_multipliers: dict[int, dict[str, float]],
 ) -> tuple[dict[str, float], dict[str, float], str]:
-    climate_zone = infer_climate_zone(location)
+    climate_zone = infer_climate_zone(location, location_climate_hints)
     impact_trace: dict[str, float] = {}
     for condition in CONDITIONS:
         season_mult = seasonal_multipliers.get(obs["season"], {}).get(condition, 1.0)
@@ -120,9 +123,13 @@ def _apply_knowledge_multipliers(
     return scores, impact_trace, climate_zone
 
 
-def _apply_rules(scores: dict[str, float], obs: dict[str, Any]) -> tuple[dict[str, float], list[dict[str, Any]]]:
+def _apply_rules(
+    scores: dict[str, float],
+    obs: dict[str, Any],
+    rule_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> tuple[dict[str, float], list[dict[str, Any]]]:
     traces: list[dict[str, Any]] = []
-    for effect in expert_rules(obs):
+    for effect in expert_rules(obs, rule_specs):
         delta = math.log(effect.weight)
         scores[effect.condition] += delta
         traces.append({"condition": effect.condition, "reason": effect.reason, "weight": effect.weight, "delta": delta})
@@ -329,13 +336,16 @@ def infer_weather(
     seasonal_multipliers = knowledge_base.get("seasonal_multipliers", DEFAULT_SEASONAL_MULTIPLIERS)
     terrain_multipliers = knowledge_base.get("terrain_multipliers", DEFAULT_TERRAIN_MULTIPLIERS)
     climate_zone_multipliers = knowledge_base.get("climate_zone_multipliers", DEFAULT_CLIMATE_ZONE_MULTIPLIERS)
+    location_climate_hints = knowledge_base.get("location_climate_hints", DEFAULT_LOCATION_CLIMATE_HINTS)
     monthly_raw = knowledge_base.get("monthly_multipliers", DEFAULT_MONTHLY_MULTIPLIERS)
     monthly_multipliers = {int(k): v for k, v in monthly_raw.items()}
     risk_mode_alert_weights = knowledge_base.get("risk_mode_alert_weights", DEFAULT_RISK_MODE_ALERT_WEIGHTS)
     risk_mode_thresholds = knowledge_base.get("risk_mode_thresholds", DEFAULT_RISK_MODE_THRESHOLDS)
+    expert_rule_specs = knowledge_base.get("expert_rules", DEFAULT_EXPERT_RULES)
 
     quality = data_quality(obs)
-    baseline = apply_historical_baseline(obs, infer_climate_zone(location), obs["month"])
+    climate_zone = infer_climate_zone(location, location_climate_hints)
+    baseline = apply_historical_baseline(obs, climate_zone, obs["month"])
 
     scores = {condition: math.log(base_priors.get(condition, DEFAULT_BASE_PRIORS[condition])) for condition in CONDITIONS}
     feature_scores = _feature_contributions(obs, baseline)
@@ -347,9 +357,10 @@ def infer_weather(
         seasonal_multipliers=seasonal_multipliers,
         terrain_multipliers=terrain_multipliers,
         climate_zone_multipliers=climate_zone_multipliers,
+        location_climate_hints=location_climate_hints,
         monthly_multipliers=monthly_multipliers,
     )
-    scores, rule_trace = _apply_rules(scores, obs)
+    scores, rule_trace = _apply_rules(scores, obs, expert_rule_specs)
 
     horizon_factor = _clamp(horizon_hours / 6, 0.5, 3.7)
     scores["rain"] += math.log(1 + 0.08 * horizon_factor)

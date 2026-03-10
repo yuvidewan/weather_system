@@ -28,4 +28,6 @@ def resolve_runtime_knowledge() -> dict[str, Any]:
         return default_payload
     if not _REQUIRED_KEYS.issubset(set(payload.keys())):
         return default_payload
-    return payload
+    merged_payload = dict(default_payload)
+    merged_payload.update(payload)
+    return merged_payload

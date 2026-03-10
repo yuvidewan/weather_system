@@ -25,18 +25,19 @@ def create_batch_job(
     risk_mode: str,
     custom_thresholds: dict[str, float],
 ) -> str:
+    unique_locations = list(dict.fromkeys(locations))
     job_id = str(uuid.uuid4())
     record = {
         "job_id": job_id,
         "status": "queued",
         "created_utc": _now_utc(),
         "completed_utc": None,
-        "total": len(locations),
+        "total": len(unique_locations),
         "done": 0,
         "error": None,
         "items": [],
         "request": {
-            "locations": locations,
+            "locations": unique_locations,
             "horizon_hours": horizon_hours,
             "risk_mode": risk_mode,
         },
@@ -48,7 +49,7 @@ def create_batch_job(
         target=_run_job,
         kwargs={
             "job_id": job_id,
-            "locations": locations,
+            "locations": unique_locations,
             "observation": observation,
             "horizon_hours": horizon_hours,
             "risk_mode": risk_mode,

@@ -51,15 +51,17 @@ expert_system/
 
 ## Backend Setup (Python)
 
+From the project root:
+
 1. Open terminal:
 ```powershell
-cd c:\Users\yuvra\Desktop\PROJECTS\expert_system\backend
+cd c:\Users\Aditya\OneDrive\Desktop\Github\Weather_System\weather_system\backend
 ```
 
 2. Create and activate virtual environment:
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate
 ```
 
 3. Install dependencies:
@@ -87,24 +89,29 @@ Auth headers for protected endpoints:
 
 ## Frontend Setup
 
-Run a static server from `frontend`:
+Use a second terminal and serve the `frontend` folder as a static site:
 
 ```powershell
-cd c:\Users\yuvra\Desktop\PROJECTS\expert_system\frontend
-python -m http.server 5500
+cd c:\Users\Aditya\OneDrive\Desktop\Github\Weather_System\weather_system\frontend
+python -m http.server 5500 --bind 127.0.0.1
 ```
 
-Open:
-- `http://127.0.0.1:5500`
+Open the expert system here:
+- `http://127.0.0.1:5500/`
 
-By default, UI points to `http://127.0.0.1:8000`.
+Important:
+- Start the backend first on `http://127.0.0.1:8000`
+- Serve the frontend from the `frontend` folder, not from the project root
+- Do not open `frontend/index.html` directly with a `file:///` URL
+- The UI is configured to call the backend at `http://127.0.0.1:8000`
+- If you accidentally serve from the project root instead, the frontend will be at `http://127.0.0.1:5500/frontend/`
 
 ## Main API Endpoints
 
 - `POST /api/v1/infer`
   - Full inference with scenarios, horizons, event probabilities, explainability, data quality
 - `POST /api/v1/infer/multi-location`
-  - Compare risk across up to 10 locations for the same observation
+  - Compare risk across up to 40 locations for the same observation
 - `GET /api/v1/live-weather?lat=<>&lon=<>`
   - Optional live ingestion endpoint with deterministic fallback
 - `GET /api/v1/knowledge-base`

@@ -430,14 +430,15 @@ def read_alert_subscriptions(enabled_only: bool = True) -> list[dict[str, Any]]:
         conn.close()
 
 
-def set_alert_subscription_enabled(subscription_id: int, enabled: bool) -> None:
+def set_alert_subscription_enabled(subscription_id: int, enabled: bool) -> bool:
     conn = _connect()
     try:
-        conn.execute(
+        cur = conn.execute(
             "UPDATE alert_subscriptions SET enabled = ? WHERE id = ?",
             (1 if enabled else 0, subscription_id),
         )
         conn.commit()
+        return cur.rowcount > 0
     finally:
         conn.close()
 

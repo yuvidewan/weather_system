@@ -282,7 +282,9 @@ def list_subscriptions(all: bool = False, _: str = Depends(authorize)) -> dict[s
 
 @app.post("/api/v1/alerts/subscriptions/{subscription_id}/toggle")
 def toggle_subscription(subscription_id: int, enabled: bool, role: str = Depends(authorize)) -> dict[str, Any]:
-    set_alert_subscription_enabled(subscription_id, enabled)
+    updated = set_alert_subscription_enabled(subscription_id, enabled)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Subscription not found")
     write_audit(_now_utc(), role, "toggle_subscription", f"id={subscription_id};enabled={enabled}")
     return {"status": "updated", "id": subscription_id, "enabled": enabled}
 
@@ -302,9 +304,10 @@ def live_weather(lat: float, lon: float, provider: str = "auto", role: str = Dep
 
 @app.post("/api/v1/infer/multi-location", response_model=MultiLocationResponse)
 def infer_multi_location(request: MultiLocationRequest, role: str = Depends(authorize)) -> MultiLocationResponse:
+    locations = list(dict.fromkeys(request.locations))
     items: list[MultiLocationItem] = []
     runtime_knowledge = resolve_runtime_knowledge()
-    for location in request.locations:
+    for location in locations:
         result = infer_weather(
             request.observation.model_dump(),
             location=location,
@@ -325,7 +328,7 @@ def infer_multi_location(request: MultiLocationRequest, role: str = Depends(auth
         _now_utc(),
         role,
         "infer_multi_location",
-        f"locations={len(request.locations)};risk_mode={request.risk_mode}",
+        f"locations={len(locations)};risk_mode={request.risk_mode}",
     )
     return MultiLocationResponse(count=len(items), items=items)
 
@@ -362,7 +365,7 @@ def active_kb(_: str = Depends(authorize)) -> dict[str, Any]:
     active = get_active_kb_version()
     if not active:
         return {"source": "default", "payload": export_knowledge_base()}
-    return {"source": "versioned", **active}
+    return {"source": "versioned", **active, "payload": resolve_runtime_knowledge()}
 
 
 @app.get("/api/v1/knowledge-base/versions")
